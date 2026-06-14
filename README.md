@@ -252,8 +252,8 @@ african-market-intelligence/
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR_USERNAME/african-market-intelligence
-cd african-market-intelligence
+git clone https://github.com/Chris-Ndungu/African-Market-Intelligence.git
+cd African-Market-Intelligence
 
 # 2. Create and activate virtual environment
 python3 -m venv venv
@@ -332,12 +332,12 @@ Query `mart_country_profile` for a single-row snapshot of any of the 54 countrie
 
 ## 🎥 Demo
 
-[▶ Watch the 3-minute pipeline walkthrough](#) ← Add Loom link here
+[▶ Watch the 3-minute pipeline walkthrough](#) 
 
 ---
 
 ## 👤 Author
 
-Built by **Chris Njoroge** — Data Engineer based in Nairobi, Kenya.
+Built by **Chris Ndungu** — Data Engineer based in Nairobi, Kenya.
 
-Open to senior data engineering roles. [LinkedIn](#) · [Email](#)
+[LinkedIn](https://www.linkedin.com/in/chris-ndungu/) · [Email](chrisndungu.tech@gmail.com)
