@@ -54,14 +54,15 @@ MAX_RETRIES   = 3
 RETRY_BACKOFF = 2.0           # seconds — doubles on each retry
 REQUEST_DELAY = 0.25          # seconds between requests (rate limiting)
 
-# ── 54 AFRICAN COUNTRIES (ISO2 codes) ─────────────────────────────────────────
+# ── 54 AFRICAN COUNTRIES ────────────────────────────────────────────────────────
+# Updated to ISO3 to prevent edge WAF / firewall 403 blocks on specific combinations
 AFRICAN_COUNTRIES = [
-    "DZ", "AO", "BJ", "BW", "BF", "BI", "CV", "CM", "CF", "TD",
-    "KM", "CG", "CD", "CI", "DJ", "EG", "GQ", "ER", "SZ", "ET",
-    "GA", "GM", "GH", "GN", "GW", "KE", "LS", "LR", "LY", "MG",
-    "MW", "ML", "MR", "MU", "MA", "MZ", "NA", "NE", "NG", "RW",
-    "ST", "SN", "SL", "SO", "ZA", "SS", "SD", "TZ", "TG", "TN",
-    "UG", "ZM", "ZW", "SC",
+    "DZA", "AGO", "BEN", "BWA", "BFA", "BDI", "CPV", "CMR", "CAF", "TCD",
+    "COM", "COG", "COD", "CIV", "DJI", "EGY", "GNQ", "ERI", "SWZ", "ETH",
+    "GAB", "GMB", "GHA", "GIN", "GNB", "KEN", "LSO", "LBR", "LBY", "MDG",
+    "MWI", "MLI", "MRT", "MUS", "MAR", "MOZ", "NAM", "NER", "NGA", "RWA",
+    "STP", "SEN", "SLE", "SOM", "ZAF", "SSD", "SDN", "TZA", "TGO", "TUN",
+    "UGA", "ZMB", "ZWE", "SYC"
 ]
 
 # ── INDICATORS ────────────────────────────────────────────────────────────────
@@ -176,19 +177,16 @@ def fetch_with_retry(url: str, params: dict, retries: int = MAX_RETRIES) -> dict
             if resp.status_code == 200:
                 return resp.json()
 
-            if resp.status_code == 429:
+            # Include 400 to catch transient World Bank edge gateway anomalies
+            if resp.status_code in (400, 429) or resp.status_code >= 500:
                 wait = RETRY_BACKOFF ** attempt
-                log.warning(f"Rate limited (429). Waiting {wait}s before retry {attempt}/{retries}.")
+                reason = "Rate limited" if resp.status_code == 429 else f"Status {resp.status_code}"
+                log.warning(f"{reason}. Waiting {wait}s before retry {attempt}/{retries}. URL: {url}")
                 time.sleep(wait)
                 continue
 
-            if resp.status_code >= 500:
-                wait = RETRY_BACKOFF ** attempt
-                log.warning(f"Server error {resp.status_code}. Waiting {wait}s before retry {attempt}/{retries}.")
-                time.sleep(wait)
-                continue
-
-            log.error(f"Unexpected status {resp.status_code} for URL: {url}")
+            # Pure unrecoverable client errors (e.g., 401 Unauthorized, 404 Not Found)
+            log.error(f"Unexpected unrecoverable status {resp.status_code} for URL: {url}")
             return None
 
         except requests.exceptions.Timeout:
@@ -212,108 +210,120 @@ def fetch_indicator_for_countries(
     """
     Fetch a single World Bank indicator for a list of countries.
 
-    The World Bank API accepts a semicolon-separated list of country codes,
-    so we batch all 54 countries into a single request per indicator.
+    Splits the country list into small chunks to prevent
+    hitting the World Bank API's URI length gateway limits which trigger 403 errors.
     Returns a list of clean record dicts ready for BigQuery insertion.
     """
+
     indicator_code = indicator_meta["code"]
-    country_string = ";".join(countries)  # e.g. "KE;NG;ZA;EG;..."
     loaded_at = datetime.now(timezone.utc)
     ingestion_date = loaded_at.date().isoformat()
+
     records = []
     skipped = 0
 
-    # ── Paginated fetch ───────────────────────────────────────────
-    page = 1
-    total_pages = 1  # will be updated from first response
+    # Chunk configuration
+    CHUNK_SIZE = 10
+    total_chunks = (len(countries) + CHUNK_SIZE - 1)
 
-    while page <= total_pages:
-        url = f"{WB_BASE_URL}/country/{country_string}/indicator/{indicator_code}"
-        params = {
-            "format":    "json",
-            "per_page":  PER_PAGE,
-            "page":      page,
-            "mrv":       25,          # most recent 25 years
-            "date":      f"{start_year}:2030",
-        }
+    # Iterate through country batches
+    for chunk_idx in range(0, len(countries), CHUNK_SIZE):
+        country_chunk = countries[chunk_idx: chunk_idx + CHUNK_SIZE]
+        country_string = ";".join(country_chunk)   # e.g. "KE;NG;ZA;..."
 
-        raw = fetch_with_retry(url, params)
+        batch_num = (chunk_idx // CHUNK_SIZE) + 1
 
-        if raw is None:
-            log.error(f"Failed to fetch {indicator_key} page {page}. Skipping remaining pages.")
-            break
+        # ── Paginated fetch ───────────────────────────────────────────
+        page = 1
+        total_pages = 1  # will be updated from first response
 
-        # World Bank wraps response: [metadata_dict, data_list]
-        if not isinstance(raw, list) or len(raw) < 2:
-            log.error(f"Unexpected response structure for {indicator_key}: {str(raw)[:200]}")
-            break
+        while page <= total_pages:
+            url = f"{WB_BASE_URL}/country/{country_string}/indicator/{indicator_code}"
+            params = {
+                "format":    "json",
+                "per_page":  PER_PAGE,
+                "page":      page,
+                "mrv":       25,          # most recent 25 years
+                "date":      f"{start_year}:2030",
+            }
 
-        meta_block = raw[0]
-        data_block = raw[1]
+            raw = fetch_with_retry(url, params)
 
-        # Update pagination from first response
-        if page == 1:
-            total_pages = int(meta_block.get("pages", 1))
-            total_records = int(meta_block.get("total", 0))
-            log.info(
-                f"  {indicator_key}: {total_records} records across "
-                f"{total_pages} page(s) for {len(countries)} countries."
-            )
+            if raw is None:
+                log.error(f"Failed to fetch {indicator_key} page {page}. Skipping remaining pages.")
+                break
 
-        if not data_block:
-            log.warning(f"  {indicator_key} page {page}: empty data block.")
-            break
+            # World Bank wraps response: [metadata_dict, data_list]
+            if not isinstance(raw, list) or len(raw) < 2:
+                log.error(f"Unexpected response structure for {indicator_key}: {str(raw)[:200]}")
+                break
 
-        # ── Parse each data point ─────────────────────────────────
-        for entry in data_block:
-            try:
-                country_code = entry.get("countryiso3code") or entry.get("country", {}).get("id", "")
-                country_name = entry.get("country", {}).get("value", "")
-                year_str = entry.get("date", "")
-                value_raw = entry.get("value")
+            meta_block = raw[0]
+            data_block = raw[1]
 
-                # Skip aggregate / regional entries (e.g. "Sub-Saharan Africa")
-                if len(country_code) != 3 or not country_code.isalpha():
+            # Update pagination from first response
+            if page == 1:
+                total_pages = int(meta_block.get("pages", 1))
+                total_records = int(meta_block.get("total", 0))
+                log.info(
+                    f"  {indicator_key}: {total_records} records across "
+                    f"{total_pages} page(s) for {len(countries)} countries."
+                )
+
+            if not data_block:
+                log.warning(f"  {indicator_key} Batch {batch_num}, page {page}: empty data block.")
+                break
+
+            # ── Parse each data point ─────────────────────────────────
+            for entry in data_block:
+                try:
+                    country_code = entry.get("countryiso3code") or entry.get("country", {}).get("id", "")
+                    country_name = entry.get("country", {}).get("value", "")
+                    year_str = entry.get("date", "")
+                    value_raw = entry.get("value")
+
+                    # Skip aggregate / regional entries (e.g. "Sub-Saharan Africa")
+                    if len(country_code) != 3 or not country_code.isalpha():
+                        skipped += 1
+                        continue
+
+                    # Skip non-year date entries (some indicators use quarterly format)
+                    if not year_str.isdigit():
+                        skipped += 1
+                        continue
+
+                    year = int(year_str)
+                    value = float(value_raw) if value_raw is not None else None
+
+                    # Stable record ID — deterministic, supports idempotency
+                    record_id = hashlib.md5(
+                        f"{country_code}|{indicator_key}|{year}".encode()
+                    ).hexdigest()
+
+                    records.append({
+                        "record_id":      record_id,
+                        "country_code":   country_code,
+                        "country_name":   country_name,
+                        "indicator_key":  indicator_key,
+                        "indicator_code": indicator_code,
+                        "indicator_name": indicator_meta["name"],
+                        "category":       indicator_meta["category"],
+                        "year":           year,
+                        "value":          value,
+                        "unit":           indicator_meta["unit"],
+                        "source":         "World Bank",
+                        "raw_response":   json.dumps(entry),
+                        "loaded_at":      loaded_at.isoformat(),
+                        "ingestion_date": ingestion_date,
+                    })
+
+                except (KeyError, ValueError, TypeError) as e:
+                    log.warning(f"  Skipping malformed record: {e} — {str(entry)[:120]}")
                     skipped += 1
                     continue
 
-                # Skip non-year date entries (some indicators use quarterly format)
-                if not year_str.isdigit():
-                    skipped += 1
-                    continue
-
-                year = int(year_str)
-                value = float(value_raw) if value_raw is not None else None
-
-                # Stable record ID — deterministic, supports idempotency
-                record_id = hashlib.md5(
-                    f"{country_code}|{indicator_key}|{year}".encode()
-                ).hexdigest()
-
-                records.append({
-                    "record_id":      record_id,
-                    "country_code":   country_code,
-                    "country_name":   country_name,
-                    "indicator_key":  indicator_key,
-                    "indicator_code": indicator_code,
-                    "indicator_name": indicator_meta["name"],
-                    "category":       indicator_meta["category"],
-                    "year":           year,
-                    "value":          value,
-                    "unit":           indicator_meta["unit"],
-                    "source":         "World Bank",
-                    "raw_response":   json.dumps(entry),
-                    "loaded_at":      loaded_at.isoformat(),
-                    "ingestion_date": ingestion_date,
-                })
-
-            except (KeyError, ValueError, TypeError) as e:
-                log.warning(f"  Skipping malformed record: {e} — {str(entry)[:120]}")
-                skipped += 1
-                continue
-
-        page += 1
-        time.sleep(REQUEST_DELAY)  # be polite to the API
+            page += 1
+            time.sleep(REQUEST_DELAY)  # be polite to the API
 
     log.info(
         f"  {indicator_key}: parsed {len(records)} records, "
@@ -393,7 +403,7 @@ def load_to_bigquery(
 
     job_config = bigquery.LoadJobConfig(
         schema=BQ_SCHEMA,
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+
         # Target today's partition only — leave historical data untouched
         time_partitioning=bigquery.TimePartitioning(
             type_=bigquery.TimePartitioningType.DAY,
@@ -411,6 +421,15 @@ def load_to_bigquery(
         batch = records[i : i + BATCH_SIZE]
         batch_num = i // BATCH_SIZE + 1
         total_batches = -(-len(records) // BATCH_SIZE)  # ceiling division
+
+        # DYNAMIC TOGGLE:
+        # The first batch clears out today's partition if it contains stale/failed run data.
+        # Ensuing batches switch to append so they pile onto the partition cleanly.
+
+        if i ==0:
+            job_config.write_disposition = bigquery.WriteDisposition.WRITE_TRUNCATE
+        else:
+            job_config.write_disposition = bigquery.WriteDisposition.WRITE_APPEND
 
         log.info(f"Loading batch {batch_num}/{total_batches} ({len(batch)} rows)...")
 
