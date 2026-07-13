@@ -1,0 +1,13 @@
+african_market_intelligence:
+  target: dev
+  outputs:
+    dev:
+        type: bigquery
+        method: service-account
+        keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+        project: "{{ env_var('GCP_PROJECT') }}"
+        dataset: dbt_african_macro
+        threads: 1
+        timeout_seconds: 300
+        location: US
+        priority: interactive
