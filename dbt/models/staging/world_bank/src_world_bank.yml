@@ -1,0 +1,58 @@
+version: 2
+
+sources:
+  - name: world_bank_raw
+    database: "{{ env_var('GCP_PROJECT') }}"
+    schema: raw_african_macro
+    tables: 
+      - name: raw_world_bank
+        description: "Raw macroeconomic indicators loaded from ingestion scripts."
+        config: 
+          loaded_at_field: loaded_at 
+        columns: 
+          - name: record_id
+            tests:
+              - not_null
+              - unique
+
+          - name: country_code
+            tests:
+              - not_null
+
+          - name: indicator_key
+            tests:
+              - not_null
+          
+          - name: indicator_code
+            tests:
+              - not_null
+          
+          - name: year
+            tests:
+              - not_null
+
+models:
+  - name: stg_world_bank__indicators
+    description: "Staging view for cleaned and deduplicated World Bank macroeconomic indicators."
+    columns: 
+      - name: record_id
+        description: "Unique ingested record ID."
+        tests:
+          - not_null
+          - unique
+
+      - name: indicator_key
+        tests:
+          - not_null
+
+      - name: country_code
+        tests:
+          - not_null
+
+      - name: indicator_code
+        tests:
+          - not_null
+
+      - name: report_year
+        tests:
+          - not_null
