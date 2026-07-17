@@ -47,8 +47,8 @@ deduplicated as (
 )
 
 select
-    indicator_key,
     record_id,
+    indicator_key,
     country_code,
     country_name,
     indicator_code,
