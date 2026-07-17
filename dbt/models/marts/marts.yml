@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: dim_country
+    description: "Master dimension of countries across all data sources."
+    columns:
+      - name: country_code
+        description: "Unique ISO-3 country code (Primary Key)."
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_indicator
+    description: "Master dimension of macroeconomic indicators and definitions."
+    columns:
+      - name: indicator_code
+        description: "Unique indicator/metric code (Primary Key)."
+        tests:
+          - not_null
+          - unique
