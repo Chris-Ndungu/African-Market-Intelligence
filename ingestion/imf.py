@@ -140,7 +140,7 @@ CURRENT_YEAR = datetime.now().year
 # API FETCHING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_with_retry(url: str, params: dict = None, retries: int = MAX_RETRIES) -> dict | None:
+def fetch_with_retry(url: str, params: dict | None, retries: int = MAX_RETRIES) -> dict | None:
     """
     GET a URL with automatic retry on transient errors.
     Returns parsed JSON or None on total failure.
@@ -470,12 +470,11 @@ def run(
 
     loaded = 0
     if valid_records:
-        if not dry_run:
-            bq_client = bigquery.Client(project=GCP_PROJECT)
+        bq_client = None if dry_run else bigquery.Client(project=GCP_PROJECT)
+        if bq_client:
             get_or_create_table(bq_client)
-            loaded = load_to_bigquery(bq_client, valid_records, dry_run)
-        else:
-            loaded = load_to_bigquery(None, valid_records, dry_run=True)
+
+            loaded = load_to_bigquery(bq_client, valid_records, dry_run=dry_run)
 
     elapsed = round(time.time() - start_time, 1)
 
