@@ -1,0 +1,57 @@
+version: 2
+
+models:
+  - name: stg_imf__indicators
+    description: "Staging view for cleaned and deduplicated IMF macroeconomic indicators."
+    columns: 
+      - name: record_id
+        description: "Unique ingested record ID / surrogate key."
+        data_tests:
+          - not_null
+          - unique
+
+      - name: country_id
+        description: "Standardized ISO3 3-letter country code."
+        data_tests:
+          - not_null
+
+      - name: indicator_code
+        description: "IMF DataMapper metric identifier (e.g., NGDP_RPCH)."
+        data_tests:
+          - not_null
+
+      - name: indicator_name
+        description: "Human-readable indicator title."
+        data_tests:
+          - not_null
+
+      - name: category
+        description: "Macroeconomic category (e.g., Inflation, Growth)."
+
+      - name: metric_unit
+        description: "Unit of measurement (mapped from raw 'unit')."
+
+      - name: is_forecast
+        description: "Boolean indicator showing if values are IMF projections."
+
+      - name: data_source
+        description: "Originating API data provider."
+
+      - name: report_year
+        description: "Macroeconomic observation reporting year."
+        data_tests:
+          - not_null
+
+      - name: report_date
+        description: "Formatted date representing year end (YYYY-12-31)."
+        data_tests:
+          - not_null
+
+      - name: indicator_value
+        description: "Casted floating point measure value."
+
+      - name: loaded_at
+        description: "Timestamp when record was loaded to warehouse."
+
+      - name: ingestion_date
+        description: "Ingestion partition date."
