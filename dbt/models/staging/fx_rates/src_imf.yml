@@ -1,0 +1,32 @@
+version: 2
+
+sources:
+  - name: fx_rates_raw
+    description: "Raw exchange rates records ingested via Python."
+    database: "{{ env_var('GCP_PROJECT') }}"
+    schema: raw_african_macro
+
+    tables: 
+      - name: raw_fx_rates
+        description: "Raw exchange rates records ingested via Python."
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 180, period: day}
+            error_after: {count: 365, period: day}
+
+        columns:
+          - name: country_id
+            description: "Primary key generated during raw ingestion."
+          - name: country_code
+            description: "ISO3 3-letter country identifier in raw payload."
+          - name: base_currency
+            description: ""
+          - name: fx_rate_usd
+            description: ""
+          - name: source
+            description: "Source API identifier."
+          - name: loaded_at
+            description: "BigQuery ingestion timestamp."
+          - name: ingestion_date
+            description: "Partitioning date."

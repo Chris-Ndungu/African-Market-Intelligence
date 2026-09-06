@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: stg_fx_rates
+    description: "Staging view for exchange rates standardized with deduplicated time-series records."
+    columns:
+      - name: record_id
+        description: "Primary surrogate key generated via MD5 hash of base_currency, country_code, and rate_date."
+        tests:
+          - unique
+          - not_null
+
+      - name: country_code
+        description: "ISO3 3-letter country identifier."
+        tests:
+          - not_null
+
+      - name: base_currency
+        description: "ISO 4217 currency code."
+        tests:
+          - not_null
+
+      - name: fx_rate_usd
+        description: "Exchange rate value against USD."
+        tests:
+          - not_null
+
+      - name: rate_date
+        description: "Date of the exchange rate observation."
+        tests:
+          - not_null
