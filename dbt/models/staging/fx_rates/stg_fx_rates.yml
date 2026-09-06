@@ -1,7 +1,7 @@
 version: 2
 
 models:
-  - name: stg_fx_rates
+  - name: stg_fx_rates__daily_rates
     description: "Staging view for exchange rates standardized with deduplicated time-series records."
     columns:
       - name: record_id
@@ -10,7 +10,7 @@ models:
           - unique
           - not_null
 
-      - name: country_code
+      - name: country_id
         description: "ISO3 3-letter country identifier."
         tests:
           - not_null
@@ -25,7 +25,7 @@ models:
         tests:
           - not_null
 
-      - name: rate_date
+      - name: ingestion_date
         description: "Date of the exchange rate observation."
         tests:
           - not_null

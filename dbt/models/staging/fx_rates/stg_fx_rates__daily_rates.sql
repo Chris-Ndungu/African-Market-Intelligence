@@ -9,22 +9,19 @@ renamed_and_casted as (
         -- MD5 surrogate key generated from base currency, country_code and ingestion_date
         to_hex(md5(concat(
             coalesce(trim(base_currency), ''), '-',
-            coalesce(trim(country_code), ''), '-',
+            coalesce(trim(country_id), ''), '-',
             cast(ingestion_date as string)
         ))) as record_id,
 
         -- Primary key
         trim(country_id) as country_id, 
 
-        -- Country attributes (reads country_code from raw, aliases to country_id for warehouse consistency)
-        trim(country_code) as country_id,
-
         -- Metric attributes
         trim(base_currency) as base_currency,
         trim(source) as data_source,
 
         -- Exchange rate metric (USD rate)
-        cast(fx_rate_usd as numeric) as fx_rate_usd
+        cast(fx_rate_usd as numeric) as fx_rate_usd,
 
         -- Temporal attributes
         cast(loaded_at as timestamp) as loaded_at,
@@ -38,7 +35,7 @@ deduplicated as (
     select 
         *,
         row_number() over(
-            partition by base_currency, country_code, rate_date
+            partition by base_currency, country_id, ingestion_date
             order by loaded_at desc, ingestion_date desc
         ) as row_num
     from renamed_and_casted
@@ -47,9 +44,8 @@ deduplicated as (
 select
     record_id,
     country_id,
-    country_code,
     base_currency,
-    source,
+    data_source,
     fx_rate_usd,
     loaded_at,
     ingestion_date
