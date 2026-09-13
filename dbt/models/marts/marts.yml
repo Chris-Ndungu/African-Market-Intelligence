@@ -1,6 +1,48 @@
 version: 2
 
 models:
+  - name: fact_macroeconomic_indicators
+    description: "Unified annual macroeconomic indicators from World Bank and IMF sources."
+    columns:
+      - name: indicator_key
+        description: "Stable key for a country, indicator, and reporting year."
+        tests:
+          - not_null
+          - unique
+      - name: country_code
+        tests:
+          - not_null
+      - name: indicator_code
+        tests:
+          - not_null
+
+  - name: fact_fx_rates
+    description: "Deduplicated daily exchange rates by country and base currency."
+    columns:
+      - name: record_id
+        tests:
+          - not_null
+          - unique
+      - name: country_code
+        tests:
+          - not_null
+      - name: fx_rate_usd
+        tests:
+          - not_null
+
+  - name: mart_fx_trends
+    description: "Daily FX rates with 30-day average, year-over-year change, and volatility."
+    columns:
+      - name: country_code
+        tests:
+          - not_null
+      - name: ingestion_date
+        tests:
+          - not_null
+
+  - name: mart_country_profile
+    description: "Country-level macroeconomic records enriched with the latest FX rate."
+
   - name: dim_country
     description: "Master dimension of countries across all data sources."
     columns:
