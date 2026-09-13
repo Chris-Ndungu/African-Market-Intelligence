@@ -141,6 +141,8 @@ dim_country          dim_date              dim_indicator
 | `mart_fx_trends` | Exchange rate time series for all 54 countries | `fx_rate_usd`, `fx_30d_avg`, `fx_yoy_change_pct`, `volatility_score` |
 | `mart_inflation_gdp` | Paired inflation and GDP data by country and quarter | `gdp_usd`, `gdp_growth_pct`, `inflation_rate`, `real_gdp_growth` |
 
+The macroeconomic fact table combines World Bank and IMF indicators. FX observations are stored separately in `fact_fx_rates` because they are daily time-series records rather than annual macroeconomic indicators.
+
 ---
 
 ## 🌐 Data Sources
