@@ -51,8 +51,8 @@ from airflow.task.trigger_rule import TriggerRule
 DAG_DIR      = Path(__file__).resolve().parent          # airflow/dags/
 AIRFLOW_DIR  = DAG_DIR.parent                           # airflow/
 PROJECT_ROOT = AIRFLOW_DIR.parent                       # project root
-INGESTION_DIR = PROJECT_ROOT / "ingestion"
-DBT_DIR       = PROJECT_ROOT / "dbt"
+INGESTION_DIR = Path("/opt/ingestion")
+DBT_DIR       = Path("/opt/dbt")
 
 # ── ENVIRONMENT ───────────────────────────────────────────────────────────────
 # These are read from the Airflow environment / .env file
@@ -229,7 +229,7 @@ Failure triggers an email alert to the owner.
         task_id="run_dbt_staging",
         bash_command=(
             f"cd {DBT_DIR} && "
-            f"dbt run --select staging.* --profiles-dir {DBT_PROFILES} --target prod"
+            f"dbt run --select staging.* --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md="Runs all dbt staging models: `stg_world_bank`, `stg_imf`, `stg_fx_rates`.",
     )
@@ -238,7 +238,7 @@ Failure triggers an email alert to the owner.
         task_id="run_dbt_dimensions",
         bash_command=(
             f"cd {DBT_DIR} && "
-            f"dbt run --select dimensions.* --profiles-dir {DBT_PROFILES} --target prod"
+            f"dbt run --select marts.dimensions.* --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md="Runs all dbt dimension models: `dim_country`, `dim_date`, `dim_indicator`.",
     )
@@ -247,7 +247,7 @@ Failure triggers an email alert to the owner.
         task_id="run_dbt_facts",
         bash_command=(
             f"cd {DBT_DIR} && "
-            f"dbt run --select facts.* --profiles-dir {DBT_PROFILES} --target prod"
+            f"dbt run --select marts.facts.* --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md="Runs the fact model: `fact_economic_indicators`.",
     )
@@ -256,7 +256,7 @@ Failure triggers an email alert to the owner.
         task_id="run_dbt_marts",
         bash_command=(
             f"cd {DBT_DIR} && "
-            f"dbt run --select marts.* --profiles-dir {DBT_PROFILES} --target prod"
+            f"dbt run --select marts.analytics* --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md="Runs all mart models: `mart_country_profile`, `mart_fx_trends`, `mart_inflation_gdp`.",
     )
@@ -265,7 +265,7 @@ Failure triggers an email alert to the owner.
         task_id="run_dbt_tests",
         bash_command=(
             f"cd {DBT_DIR} && "
-            f"dbt test --profiles-dir {DBT_PROFILES} --target prod"
+            f"dbt test --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md="""
 Runs the full dbt test suite:
