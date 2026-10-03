@@ -2,7 +2,9 @@
 
 with world_bank as (
     select
-        indicator_key,
+        to_hex(md5(concat(
+            'WB-', country_code, '-', indicator_code, '-', cast(report_year as string)
+        ))) as indicator_key,
         record_id,
         country_code,
         indicator_code,

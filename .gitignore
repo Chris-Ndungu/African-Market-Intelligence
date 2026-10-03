@@ -8,3 +8,4 @@ logs/
 *.log
 dbt/target/
 dbt/dbt_packages/
+secrets/

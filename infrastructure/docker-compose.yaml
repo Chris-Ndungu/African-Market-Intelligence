@@ -83,7 +83,7 @@ x-airflow-common:
     - ../ingestion:/opt/ingestion
     - ../dbt:/opt/dbt
     - ../.env:/opt/airflow/.env
-    - /home/chris/.config/gcp/data-engineering-pipeline-key.json:/opt/gcp/key.json # Update to match GCP key location
+    - ../airflow/secrets/data-engineering-pipeline-key.json:/opt/gcp/key.json # Update to match GCP key location
     - /home/chris/.dbt:/home/airflow/.dbt
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:

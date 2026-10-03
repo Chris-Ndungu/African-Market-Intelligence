@@ -58,7 +58,7 @@ DBT_DIR       = Path("/opt/dbt")
 # These are read from the Airflow environment / .env file
 GCP_PROJECT  = os.getenv("GCP_PROJECT")
 BQ_DATASET   = os.getenv("BQ_RAW_DATASET")
-DBT_PROFILES = os.getenv("DBT_PROFILES_DIR", str(Path.home() / ".dbt"))
+DBT_PROFILES = os.getenv("DBT_PROFILES_DIR", str(DBT_DIR))
 
 log = logging.getLogger(__name__)
 
@@ -229,6 +229,7 @@ Failure triggers an email alert to the owner.
         task_id="run_dbt_staging",
         bash_command=(
             f"cd {DBT_DIR} && "
+            f"dbt deps --profiles-dir {DBT_PROFILES} && "
             f"dbt run --select staging.* --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md="Runs all dbt staging models: `stg_world_bank`, `stg_imf`, `stg_fx_rates`.",

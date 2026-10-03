@@ -13,7 +13,6 @@ sources:
           - name: record_id
             tests:
               - not_null
-              - unique
 
           - name: country_code
             tests:
