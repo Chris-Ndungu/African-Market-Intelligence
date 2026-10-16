@@ -13,7 +13,6 @@ Usage:
 """
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -21,10 +20,16 @@ import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
+
 import requests
 from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
+
+if __package__:
+    from .bigquery_merge import load_partitioned_records
+else:
+    from bigquery_merge import load_partitioned_records
 
 # ── ENV ───────────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -32,7 +37,7 @@ load_dotenv()
 GCP_PROJECT = os.getenv("GCP_PROJECT")
 FX_RATES_KEY = os.getenv("FX_RATES_KEY")
 BQ_DATASET  = os.getenv("BQ_RAW_DATASET", "raw_african_macro")
-BQ_TABLE    = os.getenv("BQ_IMF_TABLE",   "raw_fx_rates")
+BQ_TABLE    = os.getenv("BQ_FX_TABLE",    "raw_fx_rates")
 BQ_LOCATION = os.getenv("BQ_LOCATION",    "US")
 
 # ── LOGGING ───────────────────────────────────────────────────────────────────
@@ -47,7 +52,6 @@ log = logging.getLogger(__name__)
 FX_BASE_URL  = "https://v6.exchangerate-api.com/v6/"
 MAX_RETRIES   = 3
 RETRY_BACKOFF = 2.0    # seconds — doubles on each retry
-REQUEST_DELAY = 0.6    # seconds between requests — IMF rate limit is ~10/5s
 
 # ── 54 AFRICAN COUNTRIES (ISO3 codes) ───────────────────────────────────────────
 COUNTRY_ISO3_TO_CURRENCY = {
@@ -65,6 +69,8 @@ COUNTRY_ISO3_TO_CURRENCY = {
 }
 
 # ── BIGQUERY SCHEMA ───────────────────────────────────────────────────────────
+BQ_CLUSTERING_FIELDS = ["country_id", "currency_code"]
+
 BQ_SCHEMA = [
     bigquery.SchemaField("country_id",      "STRING",    "REQUIRED"),  # ISO3
     bigquery.SchemaField("currency_code",   "STRING",    "REQUIRED"),  # ISO3
@@ -98,22 +104,64 @@ def fetch_exchange_rate(countries: list[str]) -> list[dict[str, Any]]:
     else:
         url = f"{FX_BASE_URL}{api_key}/latest/USD"
 
-    try:
-        response  = requests.get(url, timeout=10)
-        response.raise_for_status()
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.get(url, timeout=10)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            if attempt == MAX_RETRIES:
+                raise RuntimeError(
+                    f"ExchangeRate-API request failed after {MAX_RETRIES} attempts"
+                ) from exc
+            wait = RETRY_BACKOFF ** attempt
+            log.warning(
+                "ExchangeRate-API request failed (%s); retrying in %s seconds "
+                "(attempt %s/%s).",
+                exc,
+                wait,
+                attempt,
+                MAX_RETRIES,
+            )
+            time.sleep(wait)
+            continue
+
+        if response.status_code == 429 or response.status_code == 408 or response.status_code >= 500:
+            if attempt == MAX_RETRIES:
+                raise RuntimeError(
+                    "ExchangeRate-API returned HTTP "
+                    f"{response.status_code} after {MAX_RETRIES} attempts"
+                )
+            wait = RETRY_BACKOFF ** attempt
+            log.warning(
+                "ExchangeRate-API returned HTTP %s; retrying in %s seconds "
+                "(attempt %s/%s).",
+                response.status_code,
+                wait,
+                attempt,
+                MAX_RETRIES,
+            )
+            time.sleep(wait)
+            continue
+
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            raise RuntimeError(
+                f"ExchangeRate-API returned HTTP {response.status_code}"
+            ) from exc
+
         data = response.json()
-
-        print(f"Data: {data}")
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Failed to fetch exchange rates from API: {e}")
-
-    # Check for explicit error responses
-    if data.get("reslts") == "error":
-        raise ValueError(f"ExchangeRate-API error: {data.get('error-type', 'Unknown error')}")
+        if not isinstance(data, dict):
+            raise ValueError("ExchangeRate-API returned an invalid response")
+        if data.get("result") == "error":
+            raise ValueError(
+                f"ExchangeRate-API error: {data.get('error-type', 'Unknown error')}"
+            )
+        break
 
     conversion_rates = data.get("rates", {}) or data.get("conversion_rates", {})
-    ingested_at = datetime.now(timezone.utc).isoformat()
-    ingestion_date = datetime.now(timezone.utc).date().isoformat()
+    loaded_at = datetime.now(timezone.utc)
+    ingested_at = loaded_at.isoformat()
+    ingestion_date = loaded_at.date().isoformat()
 
     # Get provider calculation timestamp or default to execution time
     last_update = data.get("time_last_update_unix")
@@ -174,7 +222,7 @@ def get_or_create_table(client: bigquery.Client) -> bigquery.Table:
         type_=bigquery.TimePartitioningType.DAY,
         field="ingestion_date",
     )
-    table.clustering_fields = ["country_id", "currency_code"]
+    table.clustering_fields = BQ_CLUSTERING_FIELDS
     table.description = (
         "Raw fx rates for 54 African countries. "
         "Includes current Exchange rates. "
@@ -195,10 +243,7 @@ def load_to_bigquery(
     records: list[dict],
     dry_run: bool = False,
 ) -> int:
-    """
-    Write records to BigQuery targeting today's partition with WRITE_TRUNCATE.
-    Idempotent — re-running on the same day overwrites, never duplicates.
-    """
+    """Upsert each daily currency rate by country, currency, and ingestion date."""
     if not records:
         log.warning("No records to load.")
         return 0
@@ -208,50 +253,16 @@ def load_to_bigquery(
         log.info(f"[DRY RUN] Sample record:\n{json.dumps(records[0], indent=2)}")
         return len(records)
 
-    table_ref  = f"{GCP_PROJECT}.{BQ_DATASET}.{BQ_TABLE}"
-    today      = datetime.now(timezone.utc).date().strftime("%Y%m%d")
-    BATCH_SIZE = 10_000
-    total_loaded = 0
-
-    for i in range(0, len(records), BATCH_SIZE):
-        batch     = records[i : i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
-        total_batches = -(-len(records) // BATCH_SIZE)
-
-        # Truncate partition on first batch, append on subsequent batches
-        write_disp = (
-            bigquery.WriteDisposition.WRITE_TRUNCATE
-            if batch_num == 1
-            else bigquery.WriteDisposition.WRITE_APPEND
-        )
-
-        job_config = bigquery.LoadJobConfig(
-            schema = BQ_SCHEMA,
-            write_disposition = write_disp,
-            source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-        )
-
-        log.info(f"Loading batch {batch_num}/{total_batches} ({len(batch)} rows)...")
-
-        try:
-            job = client.load_table_from_json(
-                batch,
-                f"{table_ref}${today}",
-                job_config=job_config,
-            )
-            job.result()
-
-            if job.errors:
-                log.error(f"BigQuery errors in batch {batch_num}: {job.errors}")
-            else:
-                total_loaded += len(batch)
-                log.info(f"  Batch {batch_num} loaded.")
-
-        except GoogleCloudError as e:
-            log.error(f"BigQuery load failed: {e}")
-            raise
-
-    return total_loaded
+    table_ref = f"{GCP_PROJECT}.{BQ_DATASET}.{BQ_TABLE}"
+    loaded = load_partitioned_records(
+        client,
+        records,
+        BQ_SCHEMA,
+        table_ref,
+        clustering_fields=BQ_CLUSTERING_FIELDS,
+    )
+    log.info(f"Upserted {loaded} FX rate records into {table_ref}.")
+    return loaded
 
 
 # ─────────────────────────────────────────────────────────────────────────────

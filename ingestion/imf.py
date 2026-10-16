@@ -28,6 +28,11 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 
+if __package__:
+    from .bigquery_merge import load_partitioned_records
+else:
+    from bigquery_merge import load_partitioned_records
+
 # ── ENV ───────────────────────────────────────────────────────────────────────
 load_dotenv()
 
@@ -117,6 +122,8 @@ INDICATORS = {
 }
 
 # ── BIGQUERY SCHEMA ───────────────────────────────────────────────────────────
+BQ_CLUSTERING_FIELDS = ["country_code", "indicator_code"]
+
 BQ_SCHEMA = [
     bigquery.SchemaField("record_id",       "STRING",    "REQUIRED"),
     bigquery.SchemaField("country_code",    "STRING",    "REQUIRED"),  # ISO3
@@ -316,7 +323,7 @@ def get_or_create_table(client: bigquery.Client) -> bigquery.Table:
         type_=bigquery.TimePartitioningType.DAY,
         field="ingestion_date",
     )
-    table.clustering_fields = ["country_code", "indicator_code"]
+    table.clustering_fields = BQ_CLUSTERING_FIELDS
     table.description = (
         "Raw IMF DataMapper macroeconomic indicators for 54 African countries. "
         "Includes both historical data and near-term IMF forecasts (is_forecast=TRUE). "
@@ -337,10 +344,7 @@ def load_to_bigquery(
     records: list[dict],
     dry_run: bool = False,
 ) -> int:
-    """
-    Write records to BigQuery targeting today's partition with WRITE_TRUNCATE.
-    Idempotent — re-running on the same day overwrites, never duplicates.
-    """
+    """Upsert records by their deterministic source record ID."""
     if not records:
         log.warning("No records to load.")
         return 0
@@ -350,48 +354,16 @@ def load_to_bigquery(
         log.info(f"[DRY RUN] Sample record:\n{json.dumps(records[0], indent=2)}")
         return len(records)
 
-    table_ref  = f"{GCP_PROJECT}.{BQ_DATASET}.{BQ_TABLE}"
-    today      = datetime.now(timezone.utc).date().strftime("%Y%m%d")
-    BATCH_SIZE = 10_000
-    total_loaded = 0
-
-    job_config = bigquery.LoadJobConfig(
-        schema=BQ_SCHEMA,
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-        time_partitioning=bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.DAY,
-            field="ingestion_date",
-        ),
-        clustering_fields=["country_code", "indicator_code"],
-        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+    table_ref = f"{GCP_PROJECT}.{BQ_DATASET}.{BQ_TABLE}"
+    loaded = load_partitioned_records(
+        client,
+        records,
+        BQ_SCHEMA,
+        table_ref,
+        clustering_fields=BQ_CLUSTERING_FIELDS,
     )
-
-    for i in range(0, len(records), BATCH_SIZE):
-        batch     = records[i : i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
-        total_batches = -(-len(records) // BATCH_SIZE)
-
-        log.info(f"Loading batch {batch_num}/{total_batches} ({len(batch)} rows)...")
-
-        try:
-            job = client.load_table_from_json(
-                batch,
-                f"{table_ref}${today}",
-                job_config=job_config,
-            )
-            job.result()
-
-            if job.errors:
-                log.error(f"BigQuery errors in batch {batch_num}: {job.errors}")
-            else:
-                total_loaded += len(batch)
-                log.info(f"  Batch {batch_num} loaded.")
-
-        except GoogleCloudError as e:
-            log.error(f"BigQuery load failed: {e}")
-            raise
-
-    return total_loaded
+    log.info(f"Upserted {loaded} IMF records into {table_ref}.")
+    return loaded
 
 
 # ─────────────────────────────────────────────────────────────────────────────

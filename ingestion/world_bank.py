@@ -31,6 +31,11 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 
+if __package__:
+    from .bigquery_merge import load_partitioned_records
+else:
+    from bigquery_merge import load_partitioned_records
+
 # ── ENV ───────────────────────────────────────────────────────────────────────
 load_dotenv()
 
@@ -143,6 +148,8 @@ INDICATORS = {
 }
 
 # ── BIGQUERY SCHEMA ───────────────────────────────────────────────────────────
+BQ_CLUSTERING_FIELDS = ["country_code", "indicator_key"]
+
 BQ_SCHEMA = [
     bigquery.SchemaField("record_id",       "STRING",    "REQUIRED"),  # PK
     bigquery.SchemaField("country_code",    "STRING",    "REQUIRED"),  # ISO2
@@ -360,7 +367,7 @@ def get_or_create_table(client: bigquery.Client) -> bigquery.Table:
     )
 
     # Cluster by country and indicator for fast filtered queries
-    table.clustering_fields = ["country_code", "indicator_key"]
+    table.clustering_fields = BQ_CLUSTERING_FIELDS
 
     table.description = (
         "Raw World Bank macroeconomic indicators for 54 African countries. "
@@ -381,14 +388,7 @@ def load_to_bigquery(
     records: list[dict],
     dry_run: bool = False,
 ) -> int:
-    """
-    Write records to BigQuery using WRITE_TRUNCATE on today's partition.
-
-    WRITE_TRUNCATE on the ingestion_date partition means:
-    - Running twice on the same day overwrites rather than duplicates
-    - Historical partitions are never touched
-    - Idempotent by design
-    """
+    """Upsert records by their deterministic source record ID."""
     if not records:
         log.warning("No records to load.")
         return 0
@@ -399,59 +399,15 @@ def load_to_bigquery(
         return len(records)
 
     table_ref = f"{GCP_PROJECT}.{BQ_DATASET}.{BQ_TABLE}"
-    today = datetime.now(timezone.utc).date().isoformat()
-
-    job_config = bigquery.LoadJobConfig(
-        schema=BQ_SCHEMA,
-
-        # Target today's partition only — leave historical data untouched
-        time_partitioning=bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.DAY,
-            field="ingestion_date",
-        ),
-        clustering_fields=["country_code", "indicator_key"],
-        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+    loaded = load_partitioned_records(
+        client,
+        records,
+        BQ_SCHEMA,
+        table_ref,
+        clustering_fields=BQ_CLUSTERING_FIELDS,
     )
-
-    # BigQuery load jobs work in batches of 10,000 rows max
-    BATCH_SIZE = 10_000
-    total_loaded = 0
-
-    for i in range(0, len(records), BATCH_SIZE):
-        batch = records[i : i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
-        total_batches = -(-len(records) // BATCH_SIZE)  # ceiling division
-
-        # DYNAMIC TOGGLE:
-        # The first batch clears out today's partition if it contains stale/failed run data.
-        # Ensuing batches switch to append so they pile onto the partition cleanly.
-
-        if i ==0:
-            job_config.write_disposition = bigquery.WriteDisposition.WRITE_TRUNCATE
-        else:
-            job_config.write_disposition = bigquery.WriteDisposition.WRITE_APPEND
-
-        log.info(f"Loading batch {batch_num}/{total_batches} ({len(batch)} rows)...")
-
-        try:
-            job = client.load_table_from_json(
-                batch,
-                f"{table_ref}${today.replace('-', '')}",  # target specific partition
-                job_config=job_config,
-            )
-            job.result()  # wait for job to complete
-
-            if job.errors:
-                log.error(f"BigQuery load errors in batch {batch_num}: {job.errors}")
-            else:
-                total_loaded += len(batch)
-                log.info(f"  Batch {batch_num} loaded successfully.")
-
-        except GoogleCloudError as e:
-            log.error(f"BigQuery load failed for batch {batch_num}: {e}")
-            raise
-
-    return total_loaded
+    log.info(f"Upserted {loaded} World Bank records into {table_ref}.")
+    return loaded
 
 
 # ─────────────────────────────────────────────────────────────────────────────
