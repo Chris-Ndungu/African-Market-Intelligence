@@ -212,20 +212,22 @@ african-market-intelligence/
 ├── dbt/
 │   ├── dbt_project.yml
 │   ├── profiles.yml.example
+│   ├── seeds/
+│   │   └── dim_country_seed.csv  # Country attributes for all 54 African countries
 │   ├── models/
 │   │   ├── staging/           # stg_world_bank, stg_imf, stg_fx_rates
-│   │   ├── dimensions/        # dim_country, dim_date, dim_indicator
-│   │   ├── facts/             # fact_economic_indicators
-│   │   └── marts/             # mart_country_profile, mart_fx_trends, mart_inflation_gdp
+│   │   └── marts/
+│   │       ├── dimensions/    # dim_country, dim_indicator
+│   │       ├── facts/         # fact_macroeconomic_indicators, fact_fx_rates
+│   │       └── analytics/     # Country, FX, and inflation/GDP marts
 │   ├── tests/                 # Custom SQL assertions
-│   └── seeds/                 # dim_country seed CSV (54 countries)
 │
 ├── airflow/
 │   └── dags/
 │       └── african_macro_pipeline_dag.py
 │
 ├── infrastructure/
-│   ├── docker-compose.yml     # Airflow local setup
+│   ├── docker-compose.yaml    # Airflow local setup
 │   └── bigquery/
 │       └── create_tables.sql  # Raw table DDL
 │
@@ -266,7 +268,8 @@ pip install -r requirements.txt
 
 # 4. Configure environment
 cp .env.example .env
-# Add your GCP project ID, BigQuery dataset name, and service account key path
+# Set GCP_PROJECT, BigQuery settings, and GOOGLE_APPLICATION_CREDENTIALS to
+# the absolute host path of your service account JSON key.
 
 # 5. Create BigQuery raw tables
 bq mk --dataset your-project:raw_african_macro
@@ -282,7 +285,7 @@ make dbt-run
 make dbt-test
 
 # 9. Start Airflow (local)
-cd infrastructure && docker-compose up -d
+make airflow-up
 ```
 
 ### Makefile Commands
@@ -290,11 +293,21 @@ cd infrastructure && docker-compose up -d
 ```bash
 make ingest-all      # Run all three ingestion scripts
 make dbt-run         # Run all dbt models in order
+make dbt-seed        # Load the country dimension seed
 make dbt-test        # Run full dbt test suite
-make dbt-docs        # Generate and serve dbt lineage docs
+make dbt-docs        # Generate and serve docs at http://localhost:8081
 make airflow-up      # Start Airflow via Docker Compose
 make airflow-down    # Stop Airflow
 ```
+
+`dbt-run` seeds `dim_country_seed.csv` before building models so the
+`dim_country` dimension always contains all 54 countries, including countries
+without current observations. Country names and current income groups follow
+the [World Bank country API](https://api.worldbank.org/v2/country); capitals
+reflect current administrative capitals (including Gitega in Burundi).
+Region and sub-region follow the
+[UN M49 geographic groupings](https://unstats.un.org/unsd/methodology/m49/),
+and currency codes are ISO 4217.
 
 ---
 

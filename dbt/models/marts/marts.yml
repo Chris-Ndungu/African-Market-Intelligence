@@ -44,13 +44,31 @@ models:
     description: "Country-level macroeconomic records enriched with the latest FX rate."
 
   - name: dim_country
-    description: "Master dimension of countries across all data sources."
+    description: "Seeded master dimension of the 54 African countries."
     columns:
       - name: country_code
-        description: "Unique ISO-3 country code (Primary Key)."
+        description: "ISO-3 country code (Primary Key)."
         tests:
           - not_null
           - unique
+      - name: country_name
+        tests:
+          - not_null
+      - name: region
+        tests:
+          - not_null
+      - name: sub_region
+        tests:
+          - not_null
+      - name: currency_code
+        tests:
+          - not_null
+      - name: income_group
+        tests:
+          - not_null
+      - name: capital
+        tests:
+          - not_null
 
   - name: dim_indicator
     description: "Master dimension of macroeconomic indicators and definitions."

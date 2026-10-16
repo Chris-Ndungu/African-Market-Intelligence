@@ -49,13 +49,15 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── CONSTANTS ─────────────────────────────────────────────────────────────────
-FX_BASE_URL  = "https://v6.exchangerate-api.com/v6/"
+FX_BASE_URL = "https://v6.exchangerate-api.com/v6/"
+FX_FREE_TIER_URL = "https://open.er-api.com/v6/latest/USD"
 MAX_RETRIES   = 3
 RETRY_BACKOFF = 2.0    # seconds — doubles on each retry
 
 # ── 54 AFRICAN COUNTRIES (ISO3 codes) ───────────────────────────────────────────
 COUNTRY_ISO3_TO_CURRENCY = {
-    "DZA": "DZD", "AGO": "AOA", "BEN": "XOF", "BWA": "BWP", "BDI": "BIF",
+    "DZA": "DZD", "AGO": "AOA", "BEN": "XOF", "BFA": "XOF", "BWA": "BWP",
+    "BDI": "BIF",
     "CPV": "CVE", "CMR": "XAF", "CAF": "XAF", "TCD": "XAF", "COM": "KMF",
     "COG": "XAF", "COD": "CDF", "CIV": "XOF", "DJI": "DJF", "EGY": "EGP",
     "GNQ": "XAF", "ERI": "ERN", "SWZ": "SZL", "ETH": "ETB", "GAB": "XAF",
@@ -99,8 +101,7 @@ def fetch_exchange_rate(countries: list[str]) -> list[dict[str, Any]]:
     """
     api_key = FX_RATES_KEY
     if not api_key:
-        # Fallback to the free unauthenticated endpoint if API key is not present
-        url = f"{FX_BASE_URL}"
+        url = FX_FREE_TIER_URL
     else:
         url = f"{FX_BASE_URL}{api_key}/latest/USD"
 
@@ -124,7 +125,10 @@ def fetch_exchange_rate(countries: list[str]) -> list[dict[str, Any]]:
             time.sleep(wait)
             continue
 
-        if response.status_code == 429 or response.status_code == 408 or response.status_code >= 500:
+        if (
+            response.status_code in (408, 429)
+            or response.status_code >= 500
+        ):
             if attempt == MAX_RETRIES:
                 raise RuntimeError(
                     "ExchangeRate-API returned HTTP "
@@ -159,6 +163,8 @@ def fetch_exchange_rate(countries: list[str]) -> list[dict[str, Any]]:
         break
 
     conversion_rates = data.get("rates", {}) or data.get("conversion_rates", {})
+    if not isinstance(conversion_rates, dict) or not conversion_rates:
+        raise ValueError("ExchangeRate-API response is missing conversion rates")
     loaded_at = datetime.now(timezone.utc)
     ingested_at = loaded_at.isoformat()
     ingestion_date = loaded_at.date().isoformat()
