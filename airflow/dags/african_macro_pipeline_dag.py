@@ -22,7 +22,7 @@ Dependency graph:
     ingest_fx_rates   ──┘         ──► run_dbt_facts ──► run_dbt_marts
                                           ──► run_dbt_tests ──► notify_on_success
 
-Author : Chris Njoroge
+Author : Chris Ndungu
 Project: African Market Intelligence Pipeline
 """
 
