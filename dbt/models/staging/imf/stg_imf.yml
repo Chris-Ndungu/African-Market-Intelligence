@@ -10,10 +10,11 @@ models:
           - not_null
           - unique
 
-      - name: country_id
+      - name: country_code
         description: "Standardized ISO3 3-letter country code."
         data_tests:
           - not_null
+          - country_code_relationship
 
       - name: indicator_code
         description: "IMF DataMapper metric identifier (e.g., NGDP_RPCH)."

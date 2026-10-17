@@ -1,6 +1,13 @@
 -- models/staging/imf/stg_imf__indicators.sql
 
-with source_data as (
+with country_seed as (
+    select
+        upper(trim(country_code)) as iso3_code,
+        upper(trim(iso2_code)) as iso2_code
+    from {{ ref('dim_country_seed') }}
+),
+
+source_data as (
     select * from {{ source('imf_raw', 'raw_imf') }} 
 ),
 
@@ -9,8 +16,11 @@ renamed_and_casted as (
         -- Primary key
         trim(s.record_id) as record_id, 
 
-        -- Country attributes (reads country_code from raw, aliases to country_id for warehouse consistency)
-        trim(s.country_code) as country_id,
+        -- Normalize source ISO2 or ISO3 identifiers to canonical ISO3.
+        coalesce(
+            country.iso3_code,
+            if(length(upper(trim(s.country_code))) = 3, upper(trim(s.country_code)), null)
+        ) as country_code,
 
         -- Metric attributes
         trim(s.indicator_code) as indicator_code,
@@ -32,6 +42,8 @@ renamed_and_casted as (
         cast(s.ingestion_date as date) as ingestion_date
 
     from source_data as s
+    left join country_seed as country
+        on upper(trim(s.country_code)) in (country.iso2_code, country.iso3_code)
     where s.year is not null
 ),
 
@@ -39,7 +51,7 @@ deduplicated as (
     select 
         *,
         row_number() over(
-            partition by country_id, indicator_code, report_year
+            partition by country_code, indicator_code, report_year
             order by loaded_at desc, ingestion_date desc
         ) as row_num
     from renamed_and_casted
@@ -47,7 +59,7 @@ deduplicated as (
 
 select
     record_id,
-    country_id,
+    country_code,
     indicator_code,
     indicator_name,
     category,

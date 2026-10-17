@@ -1,5 +1,12 @@
 -- models/staging/world_bank/stg_world_bank__indicators.sql
-with source_data as (
+with country_seed as (
+    select
+        upper(trim(country_code)) as iso3_code,
+        upper(trim(iso2_code)) as iso2_code
+    from {{ ref('dim_country_seed') }}
+),
+
+source_data as (
     select * from {{ source('world_bank_raw', 'raw_world_bank') }} 
 ),
 
@@ -9,7 +16,10 @@ renamed_and_casted as (
         trim(s.record_id) as record_id, 
 
         -- Country attributes
-        trim(s.country_code) as country_code,
+        coalesce(
+            country.iso3_code,
+            if(length(upper(trim(s.country_code))) = 3, upper(trim(s.country_code)), null)
+        ) as country_code,
         trim(s.country_name) as country_name,
 
         -- Metric attributes
@@ -31,7 +41,9 @@ renamed_and_casted as (
         cast(s.loaded_at as timestamp) as loaded_at,
         cast(s.ingestion_date as date) as ingestion_date
 
-    from source_data as s  -- Added table alias 's'
+    from source_data as s
+    left join country_seed as country
+        on upper(trim(s.country_code)) in (country.iso2_code, country.iso3_code)
     where s.year is not null
 ),
 

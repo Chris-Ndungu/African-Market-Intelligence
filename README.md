@@ -89,11 +89,11 @@ This pipeline closes that gap.
 
 ## 📊 Key Metrics This Pipeline Produces
 
-- **Latest GDP, CPI, and FX rate** per country — refreshed daily
-- **Exchange rate trends** — 30-day average, YoY change, volatility score
-- **Inflation vs GDP** — paired quarterly for cross-country comparison
-- **Country risk score** — derived from macro indicator composites
-- **Data freshness status** — surfaced per country via dbt source tests
+- **Annual macro indicators** per country from World Bank and IMF, refreshed daily
+- **FX trends** — 30-day rate average, YoY rate change, and annualized volatility
+- **Country risk score** — 0–100 composite of available macro and FX indicators
+- **Financial access proxies** — private credit/GDP and mobile cellular subscriptions
+- **Data freshness** — raw source thresholds are checked by the Airflow DAG
 
 ---
 
@@ -107,41 +107,85 @@ This pipeline closes that gap.
 | `staging_african_macro` | Cleaned, typed, renamed versions of raw tables | Daily dbt run |
 | `analytics_african_macro` | Dimension, fact, and mart tables — what analysts query | Daily dbt run |
 
-### Fact Table — `fact_economic_indicators`
+### Fact Table — `fact_macroeconomic_indicators`
 
 | Column | Type | Key | Description |
 |---|---|---|---|
-| `indicator_id` | STRING | PK | Hash of country_id + indicator_type + date_id |
-| `country_id` | STRING | FK | References dim_country |
-| `date_id` | STRING | FK | References dim_date |
-| `indicator_type` | STRING | | GDP, CPI, FX_RATE, TRADE_BALANCE |
-| `value` | FLOAT64 | | Numeric value of the indicator |
-| `unit` | STRING | | USD, %, Index |
-| `source` | STRING | | World Bank, IMF, ExchangeRate-API |
-| `loaded_at` | TIMESTAMP | | Ingestion timestamp — used for freshness tests |
+| `indicator_key` | STRING | PK | Stable source-prefixed key for an annual country indicator |
+| `country_code` | STRING | FK | Canonical ISO3 country code |
+| `indicator_code` | STRING | | Original World Bank or IMF indicator code |
+| `report_year` | INT64 | | Observation year |
+| `indicator_value` | NUMERIC/FLOAT64 | | Source indicator value |
+| `data_source` | STRING | | World Bank or IMF |
+| `loaded_at` | TIMESTAMP | | Ingestion timestamp |
 
 ### Dimension Tables
 
 ```
-dim_country          dim_date              dim_indicator
-├── country_id PK    ├── date_id PK        ├── indicator_id PK
-├── country_name     ├── full_date         ├── indicator_name
-├── region           ├── year              ├── category
-├── sub_region       ├── quarter           ├── unit
-├── currency_code    ├── month             ├── source
-├── income_group     ├── week_of_year      └── description
-└── capital          └── is_year_end
+dim_country                 dim_indicator
+├── country_code PK (ISO3)  ├── indicator_code PK
+├── iso2_code               ├── indicator_name
+├── country_name            ├── category
+├── region / sub_region     ├── metric_unit
+├── currency_code           └── data_source
+├── income_group
+└── capital
 ```
 
 ### Mart Tables
 
 | Mart | Description | Key Columns |
 |---|---|---|
-| `mart_country_profile` | Latest snapshot per country — one row per country | `latest_gdp_usd`, `latest_cpi`, `latest_fx_rate_usd`, `gdp_growth_yoy`, `risk_score` |
+| `mart_country_profile` | Annual country/indicator records enriched with latest FX and risk score | `indicator_key`, `country_code`, `report_year`, `indicator_value`, `latest_fx_rate_usd`, `risk_score`, `risk_component_count` |
 | `mart_fx_trends` | Exchange rate time series for all 54 countries | `fx_rate_usd`, `fx_30d_avg`, `fx_yoy_change_pct`, `volatility_score` |
 | `mart_inflation_gdp` | Paired inflation and GDP data by country and quarter | `gdp_usd`, `gdp_growth_pct`, `inflation_rate`, `real_gdp_growth` |
 
 The macroeconomic fact table combines World Bank and IMF indicators. FX observations are stored separately in `fact_fx_rates` because they are daily time-series records rather than annual macroeconomic indicators.
+
+### Country identifiers and risk-score definition
+
+ISO3 is the canonical country key in all dbt staging, fact, and mart models.
+World Bank, IMF, and FX source identifiers are uppercased and mapped through
+`dim_country_seed` at the staging boundary; ISO2 and ISO3 values are both
+accepted as inputs. Unmapped two-letter identifiers become null and fail
+staging quality tests rather than continuing as noncanonical keys.
+
+`mart_country_profile.risk_score` ranges from 0 (lower measured risk) to 100
+(higher measured risk). It equally averages the available component groups;
+missing groups are excluded, and `risk_component_count` shows the number
+included (0–4):
+
+| Component | Input | Normalization to 0–100 |
+|---|---|---|
+| Inflation | Latest available annual CPI inflation | 0% → 0; 25% or more → 100 |
+| Public debt | IMF public debt (% of GDP) | 30% → 0; 120% or more → 100 |
+| Unemployment | Latest available unemployment rate | 5% → 0; 30% or more → 100 |
+| FX | Mean of depreciation and annualized 30-day realized volatility | 50% depreciation / volatility → 100; appreciation does not add depreciation risk |
+
+Each component is clamped to 0–100. The FX group averages whichever of its two
+subcomponents are available. This is a transparent comparative indicator, not
+a credit rating or a forecast of default.
+
+The daily `fact_fx_rates` model is rebuilt from staging on each run and
+partitioned by `ingestion_date`. This avoids BigQuery DML (`MERGE`), which is
+not available when the project has no billing account. The current FX dataset
+is small enough for a full rebuild; if it grows substantially, enable billing
+before switching the model back to an incremental strategy. Macro indicator
+models are also rebuilt on each run so historical source revisions are
+reflected.
+
+When upgrading an existing BigQuery deployment from the prior FX table schema,
+run this one-time backfill before the scheduled DAG: load the seed, rebuild the
+staging views, then recreate the partitioned FX fact:
+
+```bash
+cd dbt
+dbt seed --select dim_country_seed --profiles-dir . --target dev
+dbt run --select staging.* --profiles-dir . --target dev
+dbt run --select fact_fx_rates --profiles-dir . --target dev
+```
+
+The Airflow DAG runs the seed before the models on every scheduled execution.
 
 ---
 
@@ -149,7 +193,7 @@ The macroeconomic fact table combines World Bank and IMF indicators. FX observat
 
 | Source | Data Provided | Access | Cadence |
 |---|---|---|---|
-| [World Bank API](https://data.worldbank.org/) | GDP, population, trade balance | REST — free, no key | Daily |
+| [World Bank API](https://data.worldbank.org/) | GDP, population, trade, private credit/GDP, mobile subscriptions | REST — free, no key | Daily |
 | [IMF Data API](https://data.imf.org/) | CPI, inflation, current account | REST — free, no key | Daily |
 | [ExchangeRate-API](https://www.exchangerate-api.com/) | FX rates vs USD — 54 currencies | REST — free tier | Daily |
 
@@ -159,14 +203,13 @@ The macroeconomic fact table combines World Bank and IMF indicators. FX observat
 
 | Test | Model | Type | On Failure |
 |---|---|---|---|
-| `indicator_id` is unique | `fact_economic_indicators` | Built-in | DAG fails, alert sent |
-| `country_id` not null | `fact_economic_indicators` | Built-in | DAG fails, alert sent |
-| `value` not null | `fact_economic_indicators` | Built-in | DAG fails, alert sent |
-| `country_id` exists in `dim_country` | `fact_economic_indicators` | Relationship | DAG fails, alert sent |
-| `value > 0` for GDP indicators | `fact_economic_indicators` | Custom SQL | DAG fails, alert sent |
-| No future-dated records | `fact_economic_indicators` | Custom SQL | DAG fails, alert sent |
-| Freshness — `loaded_at` < 25h ago | `fact_economic_indicators` | Source freshness | Warning — logged |
-| `mart_country_profile` covers 54 rows | `mart_country_profile` | Custom SQL | Warning — logged |
+| Indicator key is unique and non-null | `fact_macroeconomic_indicators` | Built-in | DAG fails |
+| Country codes map to the seed using ISO2 or ISO3 | Staging and facts | Custom generic test | DAG fails |
+| Indicator categories use the configured set | `dim_indicator` | Accepted values | DAG fails |
+| FX merge key and rate timestamp are present | `fact_fx_rates` | Built-in | DAG fails |
+| Risk score stays between 0 and 100 | `mart_country_profile` | Accepted range | DAG fails |
+| Country dimension has exactly 54 countries | `dim_country` | Singular SQL test | DAG fails |
+| Raw source freshness is within thresholds | World Bank, IMF, FX sources | `dbt source freshness` | Airflow task fails on error threshold |
 
 ---
 
@@ -176,25 +219,29 @@ The macroeconomic fact table combines World Bank and IMF indicators. FX observat
 
 ```
 ingest_world_bank ──┐
-ingest_imf        ──┼──► load_to_bq_raw ──► run_dbt_staging
-ingest_fx_rates   ──┘                              │
-                                                   ▼
-                                         run_dbt_dimensions
-                                                   │
-                                                   ▼
-                                           run_dbt_facts
-                                                   │
-                                                   ▼
-                                           run_dbt_marts
-                                                   │
-                                                   ▼
-                                           run_dbt_tests
-                                                   │
-                                                   ▼
-                                        notify_on_completion
+ingest_imf        ──┼──► check_source_freshness ──► dbt_seed ──► run_dbt_staging
+ingest_fx_rates   ──┘                                                  │
+                                                                       ▼
+                                                            run_dbt_dimensions
+                                                                       │
+                                                                       ▼
+                                                               run_dbt_facts
+                                                                       │
+                                                                       ▼
+                                                               run_dbt_marts
+                                                                       │
+                                                                       ▼
+                                                                run_dbt_tests
+                                                                       │
+                                                                       ▼
+                                                            notify_on_completion
 ```
 
-All tasks have retry logic: **3 retries with 5-minute delays**. Failure triggers an email alert with full task logs.
+All tasks have retry logic: **3 retries with 5-minute delays**. The country
+seed is loaded before model runs so `dim_country` is available to downstream
+models. Source freshness is checked after ingestion and fails when a raw table
+exceeds its configured error threshold. Failure triggers an email alert with
+full task logs.
 
 ---
 
@@ -309,6 +356,28 @@ Region and sub-region follow the
 [UN M49 geographic groupings](https://unstats.un.org/unsd/methodology/m49/),
 and currency codes are ISO 4217.
 
+### Testing and CI
+
+Run ingestion unit tests and lint checks locally with:
+
+```bash
+pytest -q
+ruff check ingestion tests
+```
+
+The GitHub Actions workflow runs Ruff, pytest, and `dbt parse` for pull requests
+and pushes to `main`. It runs `dbt seed`, `dbt run`, and `dbt test` against
+BigQuery when the repository has the `GCP_CI_SERVICE_ACCOUNT_JSON` and
+`GCP_PROJECT` Actions secrets configured. The CI service account must be able to
+read the `raw_african_macro` source tables and create/update objects in the
+configured `ci_dbt` dataset. The BigQuery-backed test step is skipped when those
+secrets are unavailable (for example, on forked pull requests).
+
+The Airflow DAG runs `dbt source freshness` after ingestion. Each raw source
+warns after 25 hours and fails the DAG after 48 hours without a successful load.
+Country relationship tests normalize country codes against the seed's ISO2 and
+ISO3 identifiers, and a dbt singular test enforces exactly 54 seeded countries.
+
 ---
 
 ## 🧠 Engineering Decisions
@@ -333,7 +402,7 @@ Query `mart_fx_trends` to track African currency movements vs USD. Segment by re
 Query `mart_inflation_gdp` for cross-country macro comparisons by quarter. Plot real GDP growth against inflation rate to identify countries in stagflation, high-growth, or stable trajectories.
 
 **3. Country-Level Economic Monitoring**
-Query `mart_country_profile` for a single-row snapshot of any of the 54 countries — most recent GDP, CPI, FX rate, and derived `risk_score`. Designed to power country scorecards in Looker Studio or any BI tool connected to BigQuery.
+Query `mart_country_profile` by country and indicator to explore annual macroeconomic observations enriched with the latest FX rate and the documented `risk_score`. Use `dim_country` for the stable 54-row country reference dimension.
 
 ---
 

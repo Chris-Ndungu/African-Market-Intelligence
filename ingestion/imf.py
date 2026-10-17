@@ -23,8 +23,10 @@ import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
+
 import requests
 from dotenv import load_dotenv
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 
@@ -140,7 +142,7 @@ BQ_SCHEMA = [
     bigquery.SchemaField("ingestion_date",  "DATE",      "REQUIRED"),
 ]
 
-CURRENT_YEAR = datetime.now().year
+CURRENT_YEAR = datetime.now(timezone.utc).year
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,8 +223,6 @@ def fetch_indicator(
     years = list(range(start_year, CURRENT_YEAR + 3))
     periods_param = ",".join(str(y) for y in years)
 
-    # IMF accepts countries in the URL path: /PCPIPCH/KEN/NGA/ZAF/...
-    country_path = "/".join(countries)
     url = f"{IMF_BASE_URL}/{indicator_code}"
     params = {"periods": periods_param}
 
@@ -313,8 +313,8 @@ def get_or_create_table(client: bigquery.Client) -> bigquery.Table:
         table = client.get_table(table_ref)
         log.info(f"Table exists: {table_ref}")
         return table
-    except Exception:
-        pass
+    except NotFound:
+        log.info(f"Table does not exist yet: {table_ref}")
 
     log.info(f"Creating table: {table_ref}")
     table = bigquery.Table(table_ref, schema=BQ_SCHEMA)
@@ -529,10 +529,9 @@ if __name__ == "__main__":
         indicators = INDICATORS
 
     # ── Validate env ──────────────────────────────────────────────
-    if not args.dry_run:
-        if not GCP_PROJECT:
-            log.error("GCP_PROJECT is not set. Copy .env.example to .env and fill in your values.")
-            sys.exit(1)
+    if not args.dry_run and not GCP_PROJECT:
+        log.error("GCP_PROJECT is not set. Copy .env.example to .env and fill in your values.")
+        sys.exit(1)
 
     # ── Run ───────────────────────────────────────────────────────
     try:
@@ -545,6 +544,6 @@ if __name__ == "__main__":
         log.info("Interrupted.")
         sys.exit(0)
 
-    except Exception as e:
-        log.exception(f"Ingestion failed: {e}")
+    except Exception:
+        log.exception("Ingestion failed:")
         sys.exit(1)

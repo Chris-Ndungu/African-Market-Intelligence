@@ -1,55 +1,55 @@
-country_code,country_name,region,sub_region,currency_code,income_group,capital
-AGO,Angola,Africa,Middle Africa,AOA,Lower middle income,Luanda
-BDI,Burundi,Africa,Eastern Africa,BIF,Low income,Gitega
-BEN,Benin,Africa,Western Africa,XOF,Lower middle income,Porto-Novo
-BFA,Burkina Faso,Africa,Western Africa,XOF,Low income,Ouagadougou
-BWA,Botswana,Africa,Southern Africa,BWP,Upper middle income,Gaborone
-CAF,Central African Republic,Africa,Middle Africa,XAF,Low income,Bangui
-CIV,Cote d'Ivoire,Africa,Western Africa,XOF,Lower middle income,Yamoussoukro
-CMR,Cameroon,Africa,Middle Africa,XAF,Lower middle income,Yaounde
-COD,Democratic Republic of the Congo,Africa,Middle Africa,CDF,Low income,Kinshasa
-COG,Republic of the Congo,Africa,Middle Africa,XAF,Lower middle income,Brazzaville
-COM,Comoros,Africa,Eastern Africa,KMF,Lower middle income,Moroni
-CPV,Cabo Verde,Africa,Western Africa,CVE,Upper middle income,Praia
-DJI,Djibouti,Africa,Eastern Africa,DJF,Lower middle income,Djibouti
-DZA,Algeria,Africa,Northern Africa,DZD,Upper middle income,Algiers
-EGY,Egypt,Africa,Northern Africa,EGP,Lower middle income,Cairo
-ERI,Eritrea,Africa,Eastern Africa,ERN,Low income,Asmara
-ETH,Ethiopia,Africa,Eastern Africa,ETB,Low income,Addis Ababa
-GAB,Gabon,Africa,Middle Africa,XAF,Upper middle income,Libreville
-GHA,Ghana,Africa,Western Africa,GHS,Lower middle income,Accra
-GIN,Guinea,Africa,Western Africa,GNF,Lower middle income,Conakry
-GMB,Gambia,Africa,Western Africa,GMD,Low income,Banjul
-GNB,Guinea-Bissau,Africa,Western Africa,XOF,Low income,Bissau
-GNQ,Equatorial Guinea,Africa,Middle Africa,XAF,Upper middle income,Malabo
-KEN,Kenya,Africa,Eastern Africa,KES,Lower middle income,Nairobi
-LBR,Liberia,Africa,Western Africa,LRD,Low income,Monrovia
-LBY,Libya,Africa,Northern Africa,LYD,Upper middle income,Tripoli
-LSO,Lesotho,Africa,Southern Africa,LSL,Lower middle income,Maseru
-MAR,Morocco,Africa,Northern Africa,MAD,Lower middle income,Rabat
-MDG,Madagascar,Africa,Eastern Africa,MGA,Low income,Antananarivo
-MLI,Mali,Africa,Western Africa,XOF,Low income,Bamako
-MOZ,Mozambique,Africa,Eastern Africa,MZN,Low income,Maputo
-MRT,Mauritania,Africa,Western Africa,MRU,Lower middle income,Nouakchott
-MUS,Mauritius,Africa,Eastern Africa,MUR,Upper middle income,Port Louis
-MWI,Malawi,Africa,Eastern Africa,MWK,Low income,Lilongwe
-NAM,Namibia,Africa,Southern Africa,NAD,Lower middle income,Windhoek
-NER,Niger,Africa,Western Africa,XOF,Low income,Niamey
-NGA,Nigeria,Africa,Western Africa,NGN,Lower middle income,Abuja
-RWA,Rwanda,Africa,Eastern Africa,RWF,Low income,Kigali
-SDN,Sudan,Africa,Northern Africa,SDG,Low income,Khartoum
-SEN,Senegal,Africa,Western Africa,XOF,Lower middle income,Dakar
-SLE,Sierra Leone,Africa,Western Africa,SLE,Low income,Freetown
-SOM,Somalia,Africa,Eastern Africa,SOS,Low income,Mogadishu
-SSD,South Sudan,Africa,Eastern Africa,SSP,Low income,Juba
-STP,Sao Tome and Principe,Africa,Middle Africa,STN,Lower middle income,Sao Tome
-SWZ,Eswatini,Africa,Southern Africa,SZL,Lower middle income,Mbabane
-SYC,Seychelles,Africa,Eastern Africa,SCR,High income,Victoria
-TCD,Chad,Africa,Middle Africa,XAF,Low income,N'Djamena
-TGO,Togo,Africa,Western Africa,XOF,Lower middle income,Lome
-TUN,Tunisia,Africa,Northern Africa,TND,Lower middle income,Tunis
-TZA,Tanzania,Africa,Eastern Africa,TZS,Lower middle income,Dodoma
-UGA,Uganda,Africa,Eastern Africa,UGX,Low income,Kampala
-ZAF,South Africa,Africa,Southern Africa,ZAR,Upper middle income,Pretoria
-ZMB,Zambia,Africa,Eastern Africa,ZMW,Lower middle income,Lusaka
-ZWE,Zimbabwe,Africa,Eastern Africa,ZWG,Lower middle income,Harare
+country_code,iso2_code,country_name,region,sub_region,currency_code,income_group,capital
+AGO,AO,Angola,Africa,Middle Africa,AOA,Lower middle income,Luanda
+BDI,BI,Burundi,Africa,Eastern Africa,BIF,Low income,Gitega
+BEN,BJ,Benin,Africa,Western Africa,XOF,Lower middle income,Porto-Novo
+BFA,BF,Burkina Faso,Africa,Western Africa,XOF,Low income,Ouagadougou
+BWA,BW,Botswana,Africa,Southern Africa,BWP,Upper middle income,Gaborone
+CAF,CF,Central African Republic,Africa,Middle Africa,XAF,Low income,Bangui
+CIV,CI,Cote d'Ivoire,Africa,Western Africa,XOF,Lower middle income,Yamoussoukro
+CMR,CM,Cameroon,Africa,Middle Africa,XAF,Lower middle income,Yaounde
+COD,CD,Democratic Republic of the Congo,Africa,Middle Africa,CDF,Low income,Kinshasa
+COG,CG,Republic of the Congo,Africa,Middle Africa,XAF,Lower middle income,Brazzaville
+COM,KM,Comoros,Africa,Eastern Africa,KMF,Lower middle income,Moroni
+CPV,CV,Cabo Verde,Africa,Western Africa,CVE,Upper middle income,Praia
+DJI,DJ,Djibouti,Africa,Eastern Africa,DJF,Lower middle income,Djibouti
+DZA,DZ,Algeria,Africa,Northern Africa,DZD,Upper middle income,Algiers
+EGY,EG,Egypt,Africa,Northern Africa,EGP,Lower middle income,Cairo
+ERI,ER,Eritrea,Africa,Eastern Africa,ERN,Low income,Asmara
+ETH,ET,Ethiopia,Africa,Eastern Africa,ETB,Low income,Addis Ababa
+GAB,GA,Gabon,Africa,Middle Africa,XAF,Upper middle income,Libreville
+GHA,GH,Ghana,Africa,Western Africa,GHS,Lower middle income,Accra
+GIN,GN,Guinea,Africa,Western Africa,GNF,Lower middle income,Conakry
+GMB,GM,Gambia,Africa,Western Africa,GMD,Low income,Banjul
+GNB,GW,Guinea-Bissau,Africa,Western Africa,XOF,Low income,Bissau
+GNQ,GQ,Equatorial Guinea,Africa,Middle Africa,XAF,Upper middle income,Malabo
+KEN,KE,Kenya,Africa,Eastern Africa,KES,Lower middle income,Nairobi
+LBR,LR,Liberia,Africa,Western Africa,LRD,Low income,Monrovia
+LBY,LY,Libya,Africa,Northern Africa,LYD,Upper middle income,Tripoli
+LSO,LS,Lesotho,Africa,Southern Africa,LSL,Lower middle income,Maseru
+MAR,MA,Morocco,Africa,Northern Africa,MAD,Lower middle income,Rabat
+MDG,MG,Madagascar,Africa,Eastern Africa,MGA,Low income,Antananarivo
+MLI,ML,Mali,Africa,Western Africa,XOF,Low income,Bamako
+MOZ,MZ,Mozambique,Africa,Eastern Africa,MZN,Low income,Maputo
+MRT,MR,Mauritania,Africa,Western Africa,MRU,Lower middle income,Nouakchott
+MUS,MU,Mauritius,Africa,Eastern Africa,MUR,Upper middle income,Port Louis
+MWI,MW,Malawi,Africa,Eastern Africa,MWK,Low income,Lilongwe
+NAM,NA,Namibia,Africa,Southern Africa,NAD,Lower middle income,Windhoek
+NER,NE,Niger,Africa,Western Africa,XOF,Low income,Niamey
+NGA,NG,Nigeria,Africa,Western Africa,NGN,Lower middle income,Abuja
+RWA,RW,Rwanda,Africa,Eastern Africa,RWF,Low income,Kigali
+SDN,SD,Sudan,Africa,Northern Africa,SDG,Low income,Khartoum
+SEN,SN,Senegal,Africa,Western Africa,XOF,Lower middle income,Dakar
+SLE,SL,Sierra Leone,Africa,Western Africa,SLE,Low income,Freetown
+SOM,SO,Somalia,Africa,Eastern Africa,SOS,Low income,Mogadishu
+SSD,SS,South Sudan,Africa,Eastern Africa,SSP,Low income,Juba
+STP,ST,Sao Tome and Principe,Africa,Middle Africa,STN,Lower middle income,Sao Tome
+SWZ,SZ,Eswatini,Africa,Southern Africa,SZL,Lower middle income,Mbabane
+SYC,SC,Seychelles,Africa,Eastern Africa,SCR,High income,Victoria
+TCD,TD,Chad,Africa,Middle Africa,XAF,Low income,N'Djamena
+TGO,TG,Togo,Africa,Western Africa,XOF,Lower middle income,Lome
+TUN,TN,Tunisia,Africa,Northern Africa,TND,Lower middle income,Tunis
+TZA,TZ,Tanzania,Africa,Eastern Africa,TZS,Lower middle income,Dodoma
+UGA,UG,Uganda,Africa,Eastern Africa,UGX,Low income,Kampala
+ZAF,ZA,South Africa,Africa,Southern Africa,ZAR,Upper middle income,Pretoria
+ZMB,ZM,Zambia,Africa,Eastern Africa,ZMW,Lower middle income,Lusaka
+ZWE,ZW,Zimbabwe,Africa,Eastern Africa,ZWG,Lower middle income,Harare

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT: ci-project
+      DBT_PROFILES_DIR: ${{ github.workspace }}/.ci-dbt-profiles
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install validation tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest ruff requests python-dotenv google-cloud-bigquery
+          python -m pip install "dbt-core>=1.8,<2.0" "dbt-bigquery>=1.8,<2.0"
+
+      - name: Run Ruff
+        run: ruff check ingestion tests
+
+      - name: Run pytest
+        run: pytest -q
+
+      - name: Check BigQuery CI credentials
+        id: bigquery-credentials
+        env:
+          GCP_CI_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_CI_SERVICE_ACCOUNT_JSON }}
+          GCP_CI_PROJECT: ${{ secrets.GCP_PROJECT }}
+        run: |
+          if [ -n "$GCP_CI_SERVICE_ACCOUNT_JSON" ] && [ -n "$GCP_CI_PROJECT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure dbt profile
+        env:
+          GCP_CI_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_CI_SERVICE_ACCOUNT_JSON }}
+        run: |
+          mkdir -p "$DBT_PROFILES_DIR"
+          if [ -n "$GCP_CI_SERVICE_ACCOUNT_JSON" ]; then
+            printf '%s' "$GCP_CI_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/gcp-ci-key.json"
+            cat > "$DBT_PROFILES_DIR/profiles.yml" <<'YAML'
+          african_market_intelligence:
+            target: ci
+            outputs:
+              ci:
+                type: bigquery
+                method: service-account
+                project: "{{ env_var('GCP_PROJECT') }}"
+                dataset: ci_dbt
+                keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+                threads: 2
+                location: US
+          YAML
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-ci-key.json" >> "$GITHUB_ENV"
+          else
+            cat > "$DBT_PROFILES_DIR/profiles.yml" <<'YAML'
+          african_market_intelligence:
+            target: ci
+            outputs:
+              ci:
+                type: bigquery
+                method: oauth
+                project: ci-project
+                dataset: ci_dbt
+                threads: 2
+                location: US
+          YAML
+          fi
+
+      - name: Parse dbt project
+        working-directory: dbt
+        run: |
+          dbt deps
+          dbt parse --no-partial-parse
+
+      - name: Run dbt tests against BigQuery
+        if: steps.bigquery-credentials.outputs.available == 'true'
+        working-directory: dbt
+        env:
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+          DBT_PROFILES_DIR: ${{ github.workspace }}/.ci-dbt-profiles
+        run: |
+          dbt seed --target ci
+          dbt run --target ci
+          dbt test --target ci

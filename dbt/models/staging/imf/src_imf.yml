@@ -12,8 +12,8 @@ sources:
         config:
           loaded_at_field: loaded_at
           freshness:
-            warn_after: {count: 180, period: day}
-            error_after: {count: 365, period: day}
+            warn_after: {count: 25, period: hour}
+            error_after: {count: 48, period: hour}
 
         columns:
           - name: record_id

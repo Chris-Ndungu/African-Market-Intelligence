@@ -29,7 +29,7 @@ def load_partitioned_records(
         if hasattr(ingestion_date, "isoformat"):
             ingestion_date = ingestion_date.isoformat()
         if not isinstance(ingestion_date, str):
-            raise ValueError("Each record must have ingestion_date in YYYY-MM-DD format")
+            raise TypeError("Each record must have ingestion_date in YYYY-MM-DD format")
         try:
             date_key = date.fromisoformat(ingestion_date).strftime("%Y%m%d")
         except ValueError as exc:

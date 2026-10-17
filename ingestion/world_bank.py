@@ -28,6 +28,7 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 
@@ -145,6 +146,18 @@ INDICATORS = {
         "unit": "%",
         "category": "SAVINGS",
     },
+    "PRIVATE_CREDIT_GDP": {
+        "code": "FS.AST.PRVT.GD.ZS",
+        "name": "Domestic credit to private sector (% of GDP)",
+        "unit": "%",
+        "category": "FINANCIAL",
+    },
+    "MOBILE_SUBSCRIPTIONS": {
+        "code": "IT.CEL.SETS.P2",
+        "name": "Mobile cellular subscriptions (per 100 people)",
+        "unit": "subscriptions per 100 people",
+        "category": "DIGITAL",
+    },
 }
 
 # ── BIGQUERY SCHEMA ───────────────────────────────────────────────────────────
@@ -231,7 +244,6 @@ def fetch_indicator_for_countries(
 
     # Chunk configuration
     CHUNK_SIZE = 10
-    total_chunks = (len(countries) + CHUNK_SIZE - 1)
 
     # Iterate through country batches
     for chunk_idx in range(0, len(countries), CHUNK_SIZE):
@@ -354,8 +366,8 @@ def get_or_create_table(client: bigquery.Client) -> bigquery.Table:
         table = client.get_table(table_ref)
         log.info(f"Table exists: {table_ref}")
         return table
-    except Exception:
-        pass  # table doesn't exist — create it
+    except NotFound:
+        log.info(f"Table does not exist yet: {table_ref}")
 
     log.info(f"Creating table: {table_ref}")
     table = bigquery.Table(table_ref, schema=BQ_SCHEMA)
@@ -577,14 +589,12 @@ if __name__ == "__main__":
         indicators = INDICATORS
 
     # ── Validate env vars ─────────────────────────────────────────
-    if not args.dry_run:
-        missing = [v for v in ["GCP_PROJECT"] if not os.getenv(v)]
-        if missing:
-            log.error(
-                f"Missing required environment variables: {', '.join(missing)}. "
-                f"Copy .env.example to .env and fill in your values."
-            )
-            sys.exit(1)
+    if not args.dry_run and not os.getenv("GCP_PROJECT"):
+        log.error(
+            "Missing required environment variable: GCP_PROJECT. "
+            "Copy .env.example to .env and fill in your values."
+        )
+        sys.exit(1)
 
     # ── Run ───────────────────────────────────────────────────────
     try:
@@ -600,6 +610,6 @@ if __name__ == "__main__":
         log.info("Interrupted by user.")
         sys.exit(0)
 
-    except Exception as e:
-        log.exception(f"Ingestion failed with unhandled error: {e}")
+    except Exception:
+        log.exception("Ingestion failed with unhandled error:")
         sys.exit(1)

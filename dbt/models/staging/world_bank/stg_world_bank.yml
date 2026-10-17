@@ -17,6 +17,7 @@ models:
       - name: country_code
         tests:
           - not_null
+          - country_code_relationship
 
       - name: indicator_code
         tests:

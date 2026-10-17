@@ -21,10 +21,10 @@ with world_bank as (
 imf as (
     select
         to_hex(md5(concat(
-            'IMF-', country_id, '-', indicator_code, '-', cast(report_year as string)
+            'IMF-', country_code, '-', indicator_code, '-', cast(report_year as string)
         ))) as indicator_key,
         record_id,
-        country_id as country_code,
+        country_code,
         indicator_code,
         report_year,
         report_date,

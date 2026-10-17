@@ -2,6 +2,7 @@
 
 select
     country_code,
+    iso2_code,
     country_name,
     region,
     sub_region,

@@ -8,19 +8,25 @@ Tasks:
     1. ingest_world_bank       — runs ingestion/world_bank.py
     2. ingest_imf              — runs ingestion/imf.py
     3. ingest_fx_rates         — runs ingestion/fx_rates.py (parallel with above)
-    4. run_dbt_staging         — dbt run --select staging.*
-    5. run_dbt_dimensions      — dbt run --select dimensions.*
-    6. run_dbt_facts           — dbt run --select facts.*
-    7. run_dbt_marts           — dbt run --select marts.*
-    8. run_dbt_tests           — dbt test
-    9. notify_on_success       — logs completion summary
+    4. check_dbt_source_freshness — dbt source freshness
+    5. run_dbt_seed            — dbt seed --select dim_country_seed
+    6. run_dbt_staging         — dbt run --select staging.*
+    7. run_dbt_dimensions      — dbt run --select dimensions.*
+    8. run_dbt_facts           — dbt run --select facts.*
+    9. run_dbt_marts           — dbt run --select marts.*
+    10. run_dbt_tests          — dbt test
+    11. notify_on_success      — logs completion summary
 
 Dependency graph:
 
     ingest_world_bank ──┐
-    ingest_imf        ──┼──► run_dbt_staging ──► run_dbt_dimensions
-    ingest_fx_rates   ──┘         ──► run_dbt_facts ──► run_dbt_marts
-                                          ──► run_dbt_tests ──► notify_on_success
+    ingest_imf        ──┼──► check_dbt_source_freshness ──► run_dbt_seed
+    ingest_fx_rates   ──┘                                      │
+                                                               ▼
+       run_dbt_staging ──► run_dbt_dimensions ──► run_dbt_facts ──► run_dbt_marts
+                                                                            │
+                                                                            ▼
+                                                       run_dbt_tests ──► notify_on_success
 
 Author : Chris Ndungu
 Project: African Market Intelligence Pipeline
@@ -220,6 +226,31 @@ Failure triggers an email alert to the owner.
         doc_md="Fetches daily FX rates vs USD for 54 African currencies and loads to `raw_fx_rates`.",
     )
 
+    check_dbt_source_freshness = BashOperator(
+        task_id="check_dbt_source_freshness",
+        bash_command=(
+            f"cd {DBT_DIR} && "
+            f"dbt source freshness --profiles-dir {DBT_PROFILES} --target dev"
+        ),
+        doc_md=(
+            "Fails the pipeline when any raw source has not received fresh "
+            "data within its configured error threshold."
+        ),
+    )
+
+    run_dbt_seed = BashOperator(
+        task_id="run_dbt_seed",
+        bash_command=(
+            f"cd {DBT_DIR} && "
+            f"dbt seed --select dim_country_seed "
+            f"--profiles-dir {DBT_PROFILES} --target dev"
+        ),
+        doc_md=(
+            "Loads the country reference seed to BigQuery before "
+            "`dim_country` is built."
+        ),
+    )
+
     # ── DBT TASKS ─────────────────────────────────────────────────
     # Each dbt task runs after all three ingestion tasks complete.
     # dbt tasks are chained sequentially — staging must succeed before
@@ -273,7 +304,8 @@ Runs the full dbt test suite:
 - Uniqueness and not-null on fact table
 - Referential integrity (dim_country, dim_date)
 - Custom SQL assertions (value > 0 for GDP, no future-dated records)
-- Source freshness check
+
+Source freshness is checked in the preceding `check_dbt_source_freshness` task.
         """,
     )
 
@@ -291,10 +323,12 @@ Runs the full dbt test suite:
     # Ingestion tasks run in parallel, then dbt runs sequentially:
     #
     #   ingest_world_bank ──┐
-    #   ingest_imf        ──┼──► run_dbt_staging
-    #   ingest_fx_rates   ──┘         │
-    #                                 ▼
-    #                        run_dbt_dimensions
+    #   ingest_imf        ──┼──► check_dbt_source_freshness ──► run_dbt_seed
+    #   ingest_fx_rates   ──┘                                    │
+    #                                 run_dbt_staging ◄──────────┘
+    #                                        │
+    #                                        ▼
+    #                                 run_dbt_dimensions
     #                                 │
     #                                 ▼
     #                           run_dbt_facts
@@ -310,6 +344,8 @@ Runs the full dbt test suite:
 
     chain(
         [ingest_world_bank, ingest_imf, ingest_fx_rates],
+        check_dbt_source_freshness,
+        run_dbt_seed,
         run_dbt_staging,
         run_dbt_dimensions,
         run_dbt_facts,

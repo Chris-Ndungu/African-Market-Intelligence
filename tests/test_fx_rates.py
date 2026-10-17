@@ -132,10 +132,14 @@ def test_reads_fx_specific_table_environment_variable(monkeypatch):
 def test_country_seed_covers_all_supported_fx_countries():
     seed_path = Path(__file__).parents[1] / "dbt" / "seeds" / "dim_country_seed.csv"
     with seed_path.open(newline="") as seed_file:
-        seed_countries = {
-            row["country_code"]: row["currency_code"]
-            for row in csv.DictReader(seed_file)
-        }
+        seed_rows = list(csv.DictReader(seed_file))
+
+    seed_countries = {
+        row["country_code"]: row["currency_code"]
+        for row in seed_rows
+    }
+    iso2_codes = {row["iso2_code"] for row in seed_rows}
 
     assert len(seed_countries) == 54
+    assert len(iso2_codes) == 54
     assert seed_countries == fx_rates.COUNTRY_ISO3_TO_CURRENCY

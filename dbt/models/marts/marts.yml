@@ -12,12 +12,19 @@ models:
       - name: country_code
         tests:
           - not_null
+          - country_code_relationship
       - name: indicator_code
         tests:
           - not_null
 
   - name: fact_fx_rates
-    description: "Deduplicated daily exchange rates by country and base currency."
+    description: "Daily exchange rates rebuilt from staging on each run and partitioned by ingestion date."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - country_code
+              - rate_timestamp
     columns:
       - name: record_id
         tests:
@@ -26,7 +33,11 @@ models:
       - name: country_code
         tests:
           - not_null
+          - country_code_relationship
       - name: fx_rate_usd
+        tests:
+          - not_null
+      - name: rate_timestamp
         tests:
           - not_null
 
@@ -41,13 +52,45 @@ models:
           - not_null
 
   - name: mart_country_profile
-    description: "Country-level macroeconomic records enriched with the latest FX rate."
+    description: >
+      Annual country-indicator observations enriched with the latest FX rate and
+      a 0-100 risk score. The score equally averages the available inflation,
+      public-debt/GDP, unemployment, and FX components. Inflation is clamped
+      from 0-25%; debt from 30-120% of GDP; unemployment from 5-30%;
+      depreciation and annualized 30-day FX volatility each from 0-50%.
+      Higher values indicate higher risk. Missing components are excluded.
+      risk_component_count reports how many of the four component groups were
+      available (0-4); score is null when no component is available.
+    columns:
+      - name: country_code
+        description: "Canonical ISO3 country code."
+        tests:
+          - country_code_relationship
+      - name: risk_score
+        description: "Equal-weight mean of available normalized risk components, from 0 (lower risk) to 100 (higher risk)."
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: risk_component_count
+        description: "Number of available component groups included in risk_score (0-4)."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 4
 
   - name: dim_country
     description: "Seeded master dimension of the 54 African countries."
     columns:
       - name: country_code
         description: "ISO-3 country code (Primary Key)."
+        tests:
+          - not_null
+          - unique
+      - name: iso2_code
         tests:
           - not_null
           - unique
@@ -78,3 +121,20 @@ models:
         tests:
           - not_null
           - unique
+      - name: category
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - GDP
+                  - INFLATION
+                  - TRADE
+                  - DEBT
+                  - FISCAL
+                  - LABOUR
+                  - DEMOGRAPHICS
+                  - INVESTMENT
+                  - SAVINGS
+                  - FINANCIAL
+                  - DIGITAL
