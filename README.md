@@ -343,6 +343,14 @@ make airflow-up      # Start Airflow via Docker Compose
 make airflow-down    # Stop Airflow
 ```
 
+### Published dbt documentation
+
+The [dbt documentation site](https://chris-ndungu.github.io/African-Market-Intelligence/)
+is generated and published to GitHub Pages on pushes to `main`. It includes
+model documentation and lineage without querying BigQuery. To enable publishing,
+set the repository's Pages build and deployment source to **GitHub Actions**.
+The workflow can also be started manually from the Actions tab.
+
 `dbt-run` seeds `dim_country_seed.csv` before building models so the
 `dim_country` dimension always contains all 54 countries, including countries
 without current observations. Country names and current income groups follow
