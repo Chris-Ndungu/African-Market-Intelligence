@@ -1,5 +1,7 @@
 from unittest.mock import Mock
 
+import pytest
+
 from ingestion import world_bank
 
 
@@ -72,8 +74,26 @@ def test_world_bank_validation_rejects_bad_year_and_non_float_value():
     assert invalid == [invalid_record]
 
 
-def test_world_bank_empty_or_unexpected_api_response_returns_no_records(monkeypatch):
+def test_world_bank_unexpected_api_response_fails_the_run(monkeypatch):
+    # A malformed response must fail the run so a partial load never replaces
+    # the day's partition.
     monkeypatch.setattr(world_bank, "fetch_with_retry", lambda *args, **kwargs: {"error": "bad"})
+    monkeypatch.setattr(world_bank.time, "sleep", Mock())
+
+    with pytest.raises(RuntimeError, match="Unexpected World Bank response for GDP"):
+        world_bank.fetch_indicator_for_countries(
+            "GDP",
+            {"code": "NY.GDP.MKTP.CD", "name": "GDP", "category": "GDP", "unit": "USD"},
+            ["KEN"],
+        )
+
+
+def test_world_bank_empty_data_block_returns_no_records(monkeypatch):
+    monkeypatch.setattr(
+        world_bank,
+        "fetch_with_retry",
+        lambda *args, **kwargs: [{"pages": 1, "total": 0}, None],
+    )
     monkeypatch.setattr(world_bank.time, "sleep", Mock())
 
     records = world_bank.fetch_indicator_for_countries(

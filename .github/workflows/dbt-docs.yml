@@ -7,12 +7,11 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# Let an in-flight Pages deployment finish rather than cancelling it midway.
 concurrency:
   group: github-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,10 +20,10 @@ jobs:
       GCP_PROJECT: docs-project
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -55,11 +54,15 @@ jobs:
           DBT_PROFILES_DIR: ${{ runner.temp }}/dbt-profiles
         run: dbt deps
 
+      # Compiling opens a BigQuery connection, which fails without credentials.
+      # Parse (credential-free, as in CI) and build the docs from that manifest.
       - name: Generate dbt docs
         working-directory: dbt
         env:
           DBT_PROFILES_DIR: ${{ runner.temp }}/dbt-profiles
-        run: dbt docs generate --empty-catalog --target docs
+        run: |
+          dbt parse --target docs
+          dbt docs generate --no-compile --empty-catalog --target docs
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -72,6 +75,9 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

@@ -1,5 +1,7 @@
 from unittest.mock import Mock
 
+import pytest
+
 from ingestion import imf
 
 
@@ -48,15 +50,20 @@ def test_imf_parses_values_and_marks_forecast_years(monkeypatch):
     assert imf.validate_records(records) == (records, [])
 
 
-def test_imf_returns_empty_list_when_request_fails_or_values_are_empty(monkeypatch):
+def test_imf_raises_when_request_fails(monkeypatch):
+    # A failed fetch must fail the run so a partial load never replaces the
+    # day's partition.
     monkeypatch.setattr(imf, "fetch_with_retry", lambda *args, **kwargs: None)
 
-    failed = imf.fetch_indicator(
-        "PCPIPCH",
-        {"name": "Inflation", "category": "INFLATION", "unit": "Percent"},
-        ["KEN"],
-    )
+    with pytest.raises(RuntimeError, match="Failed to fetch IMF indicator PCPIPCH"):
+        imf.fetch_indicator(
+            "PCPIPCH",
+            {"name": "Inflation", "category": "INFLATION", "unit": "Percent"},
+            ["KEN"],
+        )
 
+
+def test_imf_returns_empty_list_when_values_are_empty(monkeypatch):
     monkeypatch.setattr(
         imf,
         "fetch_with_retry",
@@ -68,7 +75,6 @@ def test_imf_returns_empty_list_when_request_fails_or_values_are_empty(monkeypat
         ["KEN"],
     )
 
-    assert failed == []
     assert empty == []
 
 
