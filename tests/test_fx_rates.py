@@ -143,3 +143,13 @@ def test_country_seed_covers_all_supported_fx_countries():
     assert len(seed_countries) == 54
     assert len(iso2_codes) == 54
     assert seed_countries == fx_rates.COUNTRY_ISO3_TO_CURRENCY
+
+
+def test_fx_targets_every_seeded_country():
+    seed_path = Path(__file__).parents[1] / "dbt" / "seeds" / "dim_country_seed.csv"
+    with seed_path.open(newline="") as seed_file:
+        seed_countries = {row["country_code"] for row in csv.DictReader(seed_file)}
+
+    assert len(fx_rates.TARGET_COUNTRIES) == 54
+    assert "BWA" in fx_rates.TARGET_COUNTRIES
+    assert set(fx_rates.TARGET_COUNTRIES) == seed_countries

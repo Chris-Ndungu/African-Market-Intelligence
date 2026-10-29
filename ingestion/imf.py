@@ -9,8 +9,12 @@ IMF DataMapper API docs: https://www.imf.org/external/datamapper/api/help
 Usage:
     python imf.py                         # ingest all indicators, all countries
     python imf.py --dry-run               # fetch and validate, skip BQ write
-    python imf.py --country KEN           # single country (ISO3 code)
-    python imf.py --indicator PCPIPCH     # single indicator code
+    python imf.py --country KEN --dry-run        # single country (ISO3 code)
+    python imf.py --indicator PCPIPCH --dry-run  # single indicator code
+
+Filtered runs (--country / --indicator) are dry-run only: each load replaces
+the whole ingestion_date partition, so a partial load would delete the rest
+of the day's data.
 
 """
 
@@ -219,7 +223,7 @@ def fetch_indicator(
     records        = []
     skipped        = 0
 
-    # Build years list: 2000 to current year + 2 (IMF includes near-term forecasts)
+    # Build years list: start_year to current year + 2 (IMF includes near-term forecasts)
     years = list(range(start_year, CURRENT_YEAR + 3))
     periods_param = ",".join(str(y) for y in years)
 
@@ -229,9 +233,9 @@ def fetch_indicator(
     log.info(f"  Fetching: {url}")
     raw = fetch_with_retry(url, params)
 
+    # Fail loudly: a missing indicator must never replace a good partition.
     if raw is None:
-        log.error(f"  Failed to fetch {indicator_code}. Skipping.")
-        return []
+        raise RuntimeError(f"Failed to fetch IMF indicator {indicator_code}")
 
     # ── Parse response ────────────────────────────────────────────
     values_block = raw.get("values", {})
@@ -344,7 +348,7 @@ def load_to_bigquery(
     records: list[dict],
     dry_run: bool = False,
 ) -> int:
-    """Upsert records by their deterministic source record ID."""
+    """Replace today's ingestion_date partition with these records (no DML)."""
     if not records:
         log.warning("No records to load.")
         return 0
@@ -362,7 +366,7 @@ def load_to_bigquery(
         table_ref,
         clustering_fields=BQ_CLUSTERING_FIELDS,
     )
-    log.info(f"Upserted {loaded} IMF records into {table_ref}.")
+    log.info(f"Loaded {loaded} IMF records into {table_ref}.")
     return loaded
 
 
@@ -488,13 +492,13 @@ def parse_args():
         "--country",
         type=str,
         default=None,
-        help="Run for a single country (ISO3 code, e.g. KEN). Default: all 54.",
+        help="Run for a single country (ISO3 code, e.g. KEN). Requires --dry-run.",
     )
     parser.add_argument(
         "--indicator",
         type=str,
         default=None,
-        help="Run for a single indicator (e.g. PCPIPCH). Default: all.",
+        help="Run for a single indicator (e.g. PCPIPCH). Requires --dry-run.",
     )
     return parser.parse_args()
 
@@ -527,6 +531,13 @@ if __name__ == "__main__":
         indicators = {key: INDICATORS[key]}
     else:
         indicators = INDICATORS
+
+    # ── Guard partial loads ───────────────────────────────────────
+    # Each load replaces the whole ingestion_date partition, so writing a
+    # filtered subset would delete the rest of today's data.
+    if (args.country or args.indicator) and not args.dry_run:
+        log.error("--country and --indicator are only supported with --dry-run.")
+        sys.exit(1)
 
     # ── Validate env ──────────────────────────────────────────────
     if not args.dry_run and not GCP_PROJECT:

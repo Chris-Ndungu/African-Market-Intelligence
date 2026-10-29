@@ -2,7 +2,7 @@
 
 > **Automated macroeconomic data pipeline covering 54 African countries** — from raw API ingestion to query-optimised BigQuery analytics models, refreshed daily.
 
-Built to demonstrate production-grade data engineering: batch ingestion, dbt modelling, orchestration, and data quality — on a real-world African macroeconomic dataset.
+Built to demonstrate production-style data engineering: batch ingestion, dbt modelling, orchestration, and data quality — on a real-world African macroeconomic dataset.
 
 ---
 
@@ -49,9 +49,9 @@ This pipeline closes that gap.
 │                                                                  │
 │   Staging      stg_world_bank · stg_imf · stg_fx_rates           │
 │       ↓        (type casting, renaming, deduplication)           │
-│   Dimensions   dim_country · dim_date · dim_indicator            │
+│   Dimensions   dim_country · dim_indicator                       │
 │       ↓                                                          │
-│   Fact         fact_economic_indicators                          │
+│   Facts        fact_macroeconomic_indicators · fact_fx_rates     │
 │       ↓                                                          │
 │   Marts        mart_country_profile                              │
 │                mart_fx_trends                                    │
@@ -83,7 +83,7 @@ This pipeline closes that gap.
 | BQ Adapter | **dbt-bigquery** | Official BigQuery adapter for dbt |
 | Orchestration | **Apache Airflow 3.x** | Industry-standard, retry logic, task dependencies |
 | Containerisation | **Docker / Compose** | Local Airflow, reproducible environment |
-| Visualisation | **Looker Studio** | Native BigQuery connector, zero hosting cost |
+| Visualisation | **Looker Studio** (planned) | Native BigQuery connector, zero hosting cost |
 
 ---
 
@@ -103,9 +103,8 @@ This pipeline closes that gap.
 
 | Dataset | Purpose | Refresh |
 |---|---|---|
-| `raw_african_macro` | Unmodified API records — landing zone only | Daily ingestion |
-| `staging_african_macro` | Cleaned, typed, renamed versions of raw tables | Daily dbt run |
-| `analytics_african_macro` | Dimension, fact, and mart tables — what analysts query | Daily dbt run |
+| `raw_african_macro` | Unmodified API records — landing zone only; tables are created by the ingestion scripts | Daily ingestion |
+| `dbt_african_macro` | dbt staging views plus dimension, fact, and mart tables (set in `dbt/profiles.yml`) | Daily dbt run |
 
 ### Fact Table — `fact_macroeconomic_indicators`
 
@@ -138,7 +137,7 @@ dim_country                 dim_indicator
 |---|---|---|
 | `mart_country_profile` | Annual country/indicator records enriched with latest FX and risk score | `indicator_key`, `country_code`, `report_year`, `indicator_value`, `latest_fx_rate_usd`, `risk_score`, `risk_component_count` |
 | `mart_fx_trends` | Exchange rate time series for all 54 countries | `fx_rate_usd`, `fx_30d_avg`, `fx_yoy_change_pct`, `volatility_score` |
-| `mart_inflation_gdp` | Paired inflation and GDP data by country and quarter | `gdp_usd`, `gdp_growth_pct`, `inflation_rate`, `real_gdp_growth` |
+| `mart_inflation_gdp` | Annual World Bank GDP, GDP per capita, and CPI inflation by country (long format: one row per country, indicator, and year) | `country_code`, `report_year`, `indicator_name`, `indicator_value` |
 
 The macroeconomic fact table combines World Bank and IMF indicators. FX observations are stored separately in `fact_fx_rates` because they are daily time-series records rather than annual macroeconomic indicators.
 
@@ -157,12 +156,13 @@ included (0–4):
 
 | Component | Input | Normalization to 0–100 |
 |---|---|---|
-| Inflation | Latest available annual CPI inflation | 0% → 0; 25% or more → 100 |
-| Public debt | IMF public debt (% of GDP) | 30% → 0; 120% or more → 100 |
-| Unemployment | Latest available unemployment rate | 5% → 0; 30% or more → 100 |
+| Inflation | Latest actual (non-forecast) annual CPI inflation | 0% → 0; 25% or more → 100 |
+| Public debt | IMF public debt (% of GDP), latest actual year | 30% → 0; 120% or more → 100 |
+| Unemployment | Latest actual (non-forecast) unemployment rate | 5% → 0; 30% or more → 100 |
 | FX | Mean of depreciation and annualized 30-day realized volatility | 50% depreciation / volatility → 100; appreciation does not add depreciation risk |
 
-Each component is clamped to 0–100. The FX group averages whichever of its two
+Each component is clamped to 0–100. IMF forecast years (`is_forecast = true`)
+are excluded, so the score reflects reported data only. The FX group averages whichever of its two
 subcomponents are available. This is a transparent comparative indicator, not
 a credit rating or a forecast of default.
 
@@ -194,8 +194,8 @@ The Airflow DAG runs the seed before the models on every scheduled execution.
 | Source | Data Provided | Access | Cadence |
 |---|---|---|---|
 | [World Bank API](https://data.worldbank.org/) | GDP, population, trade, private credit/GDP, mobile subscriptions | REST — free, no key | Daily |
-| [IMF Data API](https://data.imf.org/) | CPI, inflation, current account | REST — free, no key | Daily |
-| [ExchangeRate-API](https://www.exchangerate-api.com/) | FX rates vs USD — 54 currencies | REST — free tier | Daily |
+| [IMF Data API](https://data.imf.org/) | Inflation, GDP, current account, government debt and balance, unemployment, population | REST — free, no key | Daily |
+| [ExchangeRate-API](https://www.exchangerate-api.com/) | FX rates vs USD for all 54 countries | REST — free tier | Daily |
 
 ---
 
@@ -206,42 +206,35 @@ The Airflow DAG runs the seed before the models on every scheduled execution.
 | Indicator key is unique and non-null | `fact_macroeconomic_indicators` | Built-in | DAG fails |
 | Country codes map to the seed using ISO2 or ISO3 | Staging and facts | Custom generic test | DAG fails |
 | Indicator categories use the configured set | `dim_indicator` | Accepted values | DAG fails |
-| FX merge key and rate timestamp are present | `fact_fx_rates` | Built-in | DAG fails |
+| FX record key is unique; rate timestamp is present | `fact_fx_rates` | Built-in | DAG fails |
 | Risk score stays between 0 and 100 | `mart_country_profile` | Accepted range | DAG fails |
 | Country dimension has exactly 54 countries | `dim_country` | Singular SQL test | DAG fails |
 | Raw source freshness is within thresholds | World Bank, IMF, FX sources | `dbt source freshness` | Airflow task fails on error threshold |
 
 ---
 
-## 🔁 Airflow DAG — `african_macro_pipeline_dag`
+## 🔁 Airflow DAG — `african_macro_pipeline`
 
 **Schedule:** Daily at `02:00 UTC`
 
 ```
 ingest_world_bank ──┐
-ingest_imf        ──┼──► check_source_freshness ──► dbt_seed ──► run_dbt_staging
-ingest_fx_rates   ──┘                                                  │
-                                                                       ▼
-                                                            run_dbt_dimensions
-                                                                       │
-                                                                       ▼
-                                                               run_dbt_facts
-                                                                       │
-                                                                       ▼
-                                                               run_dbt_marts
-                                                                       │
-                                                                       ▼
-                                                                run_dbt_tests
-                                                                       │
-                                                                       ▼
-                                                            notify_on_completion
+ingest_imf        ──┼──► check_dbt_source_freshness ──► run_dbt_seed
+ingest_fx_rates   ──┘     (runs dbt deps first)              │
+                                                              ▼
+   run_dbt_staging ──► run_dbt_dimensions ──► run_dbt_facts ──► run_dbt_marts
+                                                                      │
+                                                                      ▼
+                                              run_dbt_tests ──► notify_on_success
 ```
 
-All tasks have retry logic: **3 retries with 5-minute delays**. The country
+All tasks retry **3 times with exponential backoff (5 → 10 → 20 minutes)**.
+Any failed API fetch fails its ingestion task, so a partly fetched source
+never overwrites the day's good data. The country
 seed is loaded before model runs so `dim_country` is available to downstream
 models. Source freshness is checked after ingestion and fails when a raw table
-exceeds its configured error threshold. Failure triggers an email alert with
-full task logs.
+exceeds its configured error threshold. Failure triggers an email alert
+(set `ALERT_EMAIL` and `AIRFLOW_CONN_SMTP_DEFAULT` in `.env`).
 
 ---
 
@@ -252,36 +245,36 @@ african-market-intelligence/
 │
 ├── ingestion/
 │   ├── world_bank.py          # World Bank API ingestion
-│   ├── imf.py                 # IMF Data API ingestion
-│   ├── fx_rates.py            # Exchange rate API ingestion
-│   └── config.py              # GCP project, dataset, API keys
+│   ├── imf.py                 # IMF DataMapper ingestion
+│   ├── fx_rates.py            # ExchangeRate-API ingestion
+│   └── bigquery_merge.py      # Partition-replace loader shared by all three
 │
 ├── dbt/
 │   ├── dbt_project.yml
-│   ├── profiles.yml.example
+│   ├── profiles.yml           # Reads GCP_PROJECT and GOOGLE_APPLICATION_CREDENTIALS
+│   ├── packages.yml           # dbt_utils
 │   ├── seeds/
 │   │   └── dim_country_seed.csv  # Country attributes for all 54 African countries
+│   ├── macros/                # Custom generic test: country_code_relationship
 │   ├── models/
 │   │   ├── staging/           # stg_world_bank, stg_imf, stg_fx_rates
 │   │   └── marts/
 │   │       ├── dimensions/    # dim_country, dim_indicator
 │   │       ├── facts/         # fact_macroeconomic_indicators, fact_fx_rates
 │   │       └── analytics/     # Country, FX, and inflation/GDP marts
-│   ├── tests/                 # Custom SQL assertions
+│   └── tests/                 # Singular SQL assertions
 │
 ├── airflow/
 │   └── dags/
 │       └── african_macro_pipeline_dag.py
 │
 ├── infrastructure/
-│   ├── docker-compose.yaml    # Airflow local setup
-│   └── bigquery/
-│       └── create_tables.sql  # Raw table DDL
+│   ├── docker-compose.yaml    # Local Airflow 3 (CeleryExecutor)
+│   ├── Dockerfile             # Airflow image with dbt-bigquery
+│   └── config/airflow.cfg
 │
-├── docs/
-│   ├── architecture.png
-│   └── data_model.png
-│
+├── tests/                     # pytest unit tests for ingestion
+├── .github/workflows/ci.yml   # Ruff, pytest, dbt parse (+ BigQuery run when secrets exist)
 ├── .env.example
 ├── requirements.txt
 ├── Makefile
@@ -316,11 +309,13 @@ pip install -r requirements.txt
 # 4. Configure environment
 cp .env.example .env
 # Set GCP_PROJECT, BigQuery settings, and GOOGLE_APPLICATION_CREDENTIALS to
-# the absolute host path of your service account JSON key.
+# the absolute host path of your service account JSON key. Generate fresh
+# values for FERNET_KEY, AIRFLOW__API__SECRET_KEY and
+# AIRFLOW__API_AUTH__JWT_SECRET (commands are in .env.example);
+# Docker Compose refuses to start without them.
 
-# 5. Create BigQuery raw tables
-bq mk --dataset your-project:raw_african_macro
-bq query --use_legacy_sql=false < infrastructure/bigquery/create_tables.sql
+# 5. Create the raw BigQuery dataset (tables are created on first ingestion)
+bq mk --dataset --location=US your-project:raw_african_macro
 
 # 6. Run ingestion scripts
 make ingest-all
@@ -339,6 +334,7 @@ make airflow-up
 
 ```bash
 make ingest-all      # Run all three ingestion scripts
+make dbt-deps        # Install dbt packages (the other dbt targets run this first)
 make dbt-run         # Run all dbt models in order
 make dbt-seed        # Load the country dimension seed
 make dbt-test        # Run full dbt test suite
@@ -355,6 +351,17 @@ reflect current administrative capitals (including Gitega in Burundi).
 Region and sub-region follow the
 [UN M49 geographic groupings](https://unstats.un.org/unsd/methodology/m49/),
 and currency codes are ISO 4217.
+
+### Running a single source
+
+Each ingestion script also runs on its own. `--country` and `--indicator`
+filters are **dry-run only**: every load replaces the whole `ingestion_date`
+partition, so writing a filtered subset would delete the rest of the day's data.
+
+```bash
+python ingestion/imf.py --indicator PCPIPCH --dry-run
+python ingestion/fx_rates.py --country KEN --dry-run
+```
 
 ### Testing and CI
 
@@ -390,6 +397,8 @@ ISO3 identifiers, and a dbt singular test enforces exactly 54 seeded countries.
 | Ingestion pattern | Daily batch | Macroeconomic data changes daily at most. Streaming adds complexity with no benefit here. |
 | Data modelling | Star schema | Demonstrates formal modelling knowledge. Easy to extend with new indicators or countries. |
 | Containerisation | Docker Compose | Reproducible environment. Airflow is painful to install natively on any OS. |
+| Raw loads | Replace the day's partition with load jobs | Works in the BigQuery sandbox, which has no DML. Filtered CLI runs are dry-run only, so a partial load can never delete the rest of a day's data. |
+| Failure policy | Any failed API fetch fails the task | A partly fetched source never overwrites good data; Airflow retries the whole task. |
 
 ---
 
@@ -408,15 +417,19 @@ Query `mart_country_profile` by country and indicator to explore annual macroeco
 
 ## ⚠️ Known Data Limitations
 
-- World Bank and IMF annual GDP figures can lag by 1–2 years. This pipeline ingests the latest available value and flags staleness via dbt source freshness tests.
+- World Bank and IMF annual GDP figures can lag by 1–2 years. This pipeline ingests the latest available value; `dbt source freshness` monitors how recently data was loaded, not how current the source figures are.
 - Not all 54 countries have complete data for every indicator. Missing values are surfaced explicitly as `NULL` in mart tables — never filled or estimated.
 - FX rate free tier APIs have monthly call limits. The ingestion script handles `429` responses with exponential backoff.
 
 ---
 
-## 🎥 Demo
+## 🔭 What I'd Do Next
 
-[▶ Watch the 3-minute pipeline walkthrough](#) 
+- Incremental dbt models for `fact_fx_rates` once billing (and therefore `MERGE`) is enabled
+- Terraform for the BigQuery datasets, service account, and IAM bindings
+- Volume and anomaly checks (row-count deltas, `dbt_expectations`) alongside the existing schema tests
+- Separate dev and prod dbt targets, with CI building into an isolated dataset per pull request
+- A published Looker Studio dashboard for the country risk score and FX volatility
 
 ---
 
@@ -424,4 +437,4 @@ Query `mart_country_profile` by country and indicator to explore annual macroeco
 
 Built by **Chris Ndungu** — Data Engineer based in Nairobi, Kenya.
 
-[LinkedIn](https://www.linkedin.com/in/chris-ndungu/) · [Email](chrisndungu.tech@gmail.com)
+[LinkedIn](https://www.linkedin.com/in/chris-ndungu/) · [Email](mailto:chrisndungu.tech@gmail.com)
