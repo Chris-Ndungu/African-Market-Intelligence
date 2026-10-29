@@ -104,7 +104,9 @@ risk_indicator_rows as (
         indicator_code,
         data_source
     from facts
-    where indicator_code in (
+    -- Score on actuals only; IMF forecast years would otherwise win on report_year.
+    where not is_forecast
+        and indicator_code in (
         'PCPIPCH',
         'PCPIEPCH',
         'FP.CPI.TOTL.ZG',

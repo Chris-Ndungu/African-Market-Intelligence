@@ -285,3 +285,44 @@ def test_dry_run_does_not_create_bigquery_client(
     assert summary["dry_run"] is True
     assert summary[expected_summary_key] == 1
     fetch.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("module", "fetch_name", "args"),
+    [
+        (
+            imf,
+            "fetch_indicator",
+            ("PCPIPCH", {"name": "Inflation", "category": "INFLATION", "unit": "%"}, ["KEN"]),
+        ),
+        (
+            world_bank,
+            "fetch_indicator_for_countries",
+            (
+                "GDP_CURRENT_USD",
+                {"code": "NY.GDP.MKTP.CD", "name": "GDP", "category": "GDP", "unit": "USD"},
+                ["KEN"],
+            ),
+        ),
+    ],
+)
+def test_failed_fetch_fails_the_run_instead_of_loading_partial_data(
+    module, fetch_name, args, monkeypatch
+):
+    monkeypatch.setattr(module, "fetch_with_retry", lambda *a, **k: None)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+
+    with pytest.raises(RuntimeError, match="Failed to fetch"):
+        getattr(module, fetch_name)(*args)
+
+
+def test_world_bank_error_payload_fails_the_run(monkeypatch):
+    error_payload = [{"message": [{"id": "120", "value": "Invalid value"}]}]
+    monkeypatch.setattr(world_bank, "fetch_with_retry", lambda *a, **k: error_payload)
+
+    with pytest.raises(RuntimeError, match="Unexpected World Bank response"):
+        world_bank.fetch_indicator_for_countries(
+            "GDP_CURRENT_USD",
+            {"code": "NY.GDP.MKTP.CD", "name": "GDP", "category": "GDP", "unit": "USD"},
+            ["KEN"],
+        )

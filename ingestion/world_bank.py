@@ -9,8 +9,12 @@ World Bank API docs: https://datahelpdesk.worldbank.org/knowledgebase/articles/8
 Usage:
     python world_bank.py                  # ingest all indicators, all countries
     python world_bank.py --dry-run        # fetch and validate, skip BQ write
-    python world_bank.py --country KE     # single country (ISO2 code)
-    python world_bank.py --indicator GDP  # single indicator group
+    python world_bank.py --country KEN --dry-run                # single country (ISO3)
+    python world_bank.py --indicator GDP_CURRENT_USD --dry-run  # single indicator
+
+Filtered runs (--country / --indicator) are dry-run only: each load replaces
+the whole ingestion_date partition, so a partial load would delete the rest
+of the day's data.
 
 Author : Chris Ndungu
 Project: African Market Intelligence Pipeline
@@ -142,7 +146,7 @@ INDICATORS = {
     },
     "GROSS_NATIONAL_SAVINGS": {
         "code": "NY.GNS.ICTR.ZS",
-        "name": "Gross national expenditure (% of GDP)",
+        "name": "Gross savings (% of GNI)",
         "unit": "%",
         "category": "SAVINGS",
     },
@@ -165,7 +169,7 @@ BQ_CLUSTERING_FIELDS = ["country_code", "indicator_key"]
 
 BQ_SCHEMA = [
     bigquery.SchemaField("record_id",       "STRING",    "REQUIRED"),  # PK
-    bigquery.SchemaField("country_code",    "STRING",    "REQUIRED"),  # ISO2
+    bigquery.SchemaField("country_code",    "STRING",    "REQUIRED"),  # ISO3
     bigquery.SchemaField("country_name",    "STRING",    "NULLABLE"),
     bigquery.SchemaField("indicator_key",   "STRING",    "REQUIRED"),  # e.g. GDP_CURRENT_USD
     bigquery.SchemaField("indicator_code",  "STRING",    "REQUIRED"),  # e.g. NY.GDP.MKTP.CD
@@ -268,14 +272,17 @@ def fetch_indicator_for_countries(
 
             raw = fetch_with_retry(url, params)
 
+            # Fail loudly: a partly fetched indicator must never replace a good partition.
             if raw is None:
-                log.error(f"Failed to fetch {indicator_key} page {page}. Skipping remaining pages.")
-                break
+                raise RuntimeError(
+                    f"Failed to fetch {indicator_key} batch {batch_num} page {page}"
+                )
 
             # World Bank wraps response: [metadata_dict, data_list]
             if not isinstance(raw, list) or len(raw) < 2:
-                log.error(f"Unexpected response structure for {indicator_key}: {str(raw)[:200]}")
-                break
+                raise RuntimeError(
+                    f"Unexpected World Bank response for {indicator_key}: {str(raw)[:200]}"
+                )
 
             meta_block = raw[0]
             data_block = raw[1]
@@ -400,7 +407,7 @@ def load_to_bigquery(
     records: list[dict],
     dry_run: bool = False,
 ) -> int:
-    """Upsert records by their deterministic source record ID."""
+    """Replace today's ingestion_date partition with these records (no DML)."""
     if not records:
         log.warning("No records to load.")
         return 0
@@ -418,7 +425,7 @@ def load_to_bigquery(
         table_ref,
         clustering_fields=BQ_CLUSTERING_FIELDS,
     )
-    log.info(f"Upserted {loaded} World Bank records into {table_ref}.")
+    log.info(f"Loaded {loaded} World Bank records into {table_ref}.")
     return loaded
 
 
@@ -548,13 +555,13 @@ def parse_args():
         "--country",
         type=str,
         default=None,
-        help="Run for a single country (ISO2 code, e.g. KE). Default: all 54.",
+        help="Run for a single country (ISO3 code, e.g. KEN). Requires --dry-run.",
     )
     parser.add_argument(
         "--indicator",
         type=str,
         default=None,
-        help="Run for a single indicator group key (e.g. GDP_CURRENT_USD). Default: all.",
+        help="Run for a single indicator key (e.g. GDP_CURRENT_USD). Requires --dry-run.",
     )
     return parser.parse_args()
 
@@ -564,14 +571,14 @@ if __name__ == "__main__":
 
     # ── Resolve countries ─────────────────────────────────────────
     if args.country:
-        country_iso2 = args.country.upper()
-        if country_iso2 not in AFRICAN_COUNTRIES:
+        country_code = args.country.upper()
+        if country_code not in AFRICAN_COUNTRIES:
             log.error(
-                f"'{country_iso2}' is not in the supported African countries list. "
+                f"'{country_code}' is not in the supported African countries list. "
                 f"Valid options: {', '.join(AFRICAN_COUNTRIES)}"
             )
             sys.exit(1)
-        countries = [country_iso2]
+        countries = [country_code]
     else:
         countries = AFRICAN_COUNTRIES
 
@@ -587,6 +594,13 @@ if __name__ == "__main__":
         indicators = {key: INDICATORS[key]}
     else:
         indicators = INDICATORS
+
+    # ── Guard partial loads ───────────────────────────────────────
+    # Each load replaces the whole ingestion_date partition, so writing a
+    # filtered subset would delete the rest of today's data.
+    if (args.country or args.indicator) and not args.dry_run:
+        log.error("--country and --indicator are only supported with --dry-run.")
+        sys.exit(1)
 
     # ── Validate env vars ─────────────────────────────────────────
     if not args.dry_run and not os.getenv("GCP_PROJECT"):

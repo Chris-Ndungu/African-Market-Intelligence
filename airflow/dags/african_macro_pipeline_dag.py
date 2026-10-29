@@ -8,7 +8,7 @@ Tasks:
     1. ingest_world_bank       — runs ingestion/world_bank.py
     2. ingest_imf              — runs ingestion/imf.py
     3. ingest_fx_rates         — runs ingestion/fx_rates.py (parallel with above)
-    4. check_dbt_source_freshness — dbt source freshness
+    4. check_dbt_source_freshness — dbt deps + dbt source freshness
     5. run_dbt_seed            — dbt seed --select dim_country_seed
     6. run_dbt_staging         — dbt run --select staging.*
     7. run_dbt_dimensions      — dbt run --select dimensions.*
@@ -230,6 +230,7 @@ Failure triggers an email alert to the owner.
         task_id="check_dbt_source_freshness",
         bash_command=(
             f"cd {DBT_DIR} && "
+            f"dbt deps --profiles-dir {DBT_PROFILES} && "
             f"dbt source freshness --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md=(
@@ -260,7 +261,6 @@ Failure triggers an email alert to the owner.
         task_id="run_dbt_staging",
         bash_command=(
             f"cd {DBT_DIR} && "
-            f"dbt deps --profiles-dir {DBT_PROFILES} && "
             f"dbt run --select staging.* --profiles-dir {DBT_PROFILES} --target dev"
         ),
         doc_md="Runs all dbt staging models: `stg_world_bank`, `stg_imf`, `stg_fx_rates`.",
@@ -272,7 +272,7 @@ Failure triggers an email alert to the owner.
             f"cd {DBT_DIR} && "
             f"dbt run --select marts.dimensions.* --profiles-dir {DBT_PROFILES} --target dev"
         ),
-        doc_md="Runs all dbt dimension models: `dim_country`, `dim_date`, `dim_indicator`.",
+        doc_md="Runs all dbt dimension models: `dim_country`, `dim_indicator`.",
     )
 
     run_dbt_facts = BashOperator(
@@ -281,7 +281,7 @@ Failure triggers an email alert to the owner.
             f"cd {DBT_DIR} && "
             f"dbt run --select marts.facts.* --profiles-dir {DBT_PROFILES} --target dev"
         ),
-        doc_md="Runs the fact model: `fact_economic_indicators`.",
+        doc_md="Runs the fact models: `fact_macroeconomic_indicators`, `fact_fx_rates`.",
     )
 
     run_dbt_marts = BashOperator(
@@ -301,9 +301,9 @@ Failure triggers an email alert to the owner.
         ),
         doc_md="""
 Runs the full dbt test suite:
-- Uniqueness and not-null on fact table
-- Referential integrity (dim_country, dim_date)
-- Custom SQL assertions (value > 0 for GDP, no future-dated records)
+- Uniqueness and not-null on fact tables
+- Country-code relationship to `dim_country`
+- Risk-score range and the 54-country seed assertion
 
 Source freshness is checked in the preceding `check_dbt_source_freshness` task.
         """,

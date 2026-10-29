@@ -3,12 +3,16 @@ fx_rates.py
 ─────────────────────────────────────────────────────────────────────────────
 Ingests fx rates for 54 African countries from the ExchangeRate-API and loads them into BigQuery (raw layer).
 
-IMF DataMapper API docs: https://www.exchangerate-api.com/docs
+ExchangeRate-API docs: https://www.exchangerate-api.com/docs
 
 Usage:
     python fx_rates.py                         # ingest all rates, all countries
     python fx_rates.py --dry-run               # fetch and validate, skip BQ write
-    python fx_rates.py --country KEN           # single country (ISO3 code)
+    python fx_rates.py --country KEN --dry-run # single country (ISO3 code)
+
+Single-country runs are dry-run only: each load replaces the whole
+ingestion_date partition, so a partial load would delete the rest of the
+day's rates.
 
 """
 
@@ -70,6 +74,9 @@ COUNTRY_ISO3_TO_CURRENCY = {
     "SSD": "SSP", "SDN": "SDG", "TZA": "TZS", "TGO": "XOF", "TUN": "TND",
     "UGA": "UGX", "ZMB": "ZMW", "ZWE": "ZWG"
 }
+
+# Derived from the currency map so the two lists can never drift apart.
+TARGET_COUNTRIES = sorted(COUNTRY_ISO3_TO_CURRENCY)
 
 # ── BIGQUERY SCHEMA ───────────────────────────────────────────────────────────
 BQ_CLUSTERING_FIELDS = ["country_id", "currency_code"]
@@ -250,7 +257,7 @@ def load_to_bigquery(
     records: list[dict],
     dry_run: bool = False,
 ) -> int:
-    """Upsert each daily currency rate by country, currency, and ingestion date."""
+    """Replace today's ingestion_date partition with these rates (no DML)."""
     if not records:
         log.warning("No records to load.")
         return 0
@@ -268,7 +275,7 @@ def load_to_bigquery(
         table_ref,
         clustering_fields=BQ_CLUSTERING_FIELDS,
     )
-    log.info(f"Upserted {loaded} FX rate records into {table_ref}.")
+    log.info(f"Loaded {loaded} FX rate records into {table_ref}.")
     return loaded
 
 
@@ -392,13 +399,7 @@ def parse_args():
         "--country",
         type=str,
         default=None,
-        help="Run for a single country (ISO3 code, e.g. KEN). Default: all 54.",
-    )
-    parser.add_argument(
-        "--indicator",
-        type=str,
-        default=None,
-        help="Run for a single indicator (e.g. PCPIPCH). Default: all.",
+        help="Run for a single country (ISO3 code, e.g. KEN). Requires --dry-run.",
     )
     return parser.parse_args()
 
@@ -406,27 +407,26 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    TARGET_COUNTRIES = [
-            "AGO", "BDI", "BEN", "BFA", "CAF", "CIV", "CMR", "COD", "COG", "COM",
-            "CPV", "DJI", "DZA", "EGY", "ERI", "ETH", "GAB", "GHA", "GIN", "GMB",
-            "GNB", "GNQ", "KEN", "LBR", "LBY", "LSO", "MAR", "MDG", "MLI", "MOZ",
-            "MRT", "MUS", "MWI", "NAM", "NER", "NGA", "RWA", "SDN", "SEN", "SLE",
-            "SOM", "SSD", "STP", "SWZ", "SYC", "TCD", "TGO", "TUN", "TZA", "UGA",
-            "ZAF", "ZMB", "ZWE"
-        ]
 
     # ── Resolve countries ─────────────────────────────────────────
     if args.country:
         code = args.country.upper()
-        if code not in TARGET_COUNTRIES :
+        if code not in TARGET_COUNTRIES:
             log.error(
                 f"'{code}' is not in the supported African countries list. "
-                f"Valid options: {', '.join(TARGET_COUNTRIES    )}"
+                f"Valid options: {', '.join(TARGET_COUNTRIES)}"
             )
             sys.exit(1)
         countries = [code]
     else:
-        countries = TARGET_COUNTRIES    
+        countries = TARGET_COUNTRIES
+
+    # ── Guard partial loads ───────────────────────────────────────
+    # Each load replaces the whole ingestion_date partition, so writing a
+    # filtered subset would delete the rest of today's data.
+    if (args.country) and not args.dry_run:
+        log.error("--country is only supported with --dry-run.")
+        sys.exit(1)
 
     # ── Validate env ──────────────────────────────────────────────
     if not args.dry_run and not GCP_PROJECT:
