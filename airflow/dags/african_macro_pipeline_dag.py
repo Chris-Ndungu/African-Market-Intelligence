@@ -233,6 +233,11 @@ Failure triggers an email alert to the owner.
             f"dbt deps --profiles-dir {DBT_PROFILES} && "
             f"dbt source freshness --profiles-dir {DBT_PROFILES} --target dev"
         ),
+        # Stale data won't fix itself, so don't spend the default backoff on it.
+        # One quick retry still covers a transient `dbt deps` network failure.
+        retries=1,
+        retry_delay=timedelta(minutes=2),
+        retry_exponential_backoff=False,
         doc_md=(
             "Fails the pipeline when any raw source has not received fresh "
             "data within its configured error threshold."
@@ -299,6 +304,9 @@ Failure triggers an email alert to the owner.
             f"cd {DBT_DIR} && "
             f"dbt test --profiles-dir {DBT_PROFILES} --target dev"
         ),
+        # A failing data test is deterministic: alert at once instead of
+        # retrying with backoff for up to an hour.
+        retries=0,
         doc_md="""
 Runs the full dbt test suite:
 - Uniqueness and not-null on fact tables

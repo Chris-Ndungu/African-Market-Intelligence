@@ -1,6 +1,11 @@
 # 🌍 African Market Intelligence Pipeline
 
+[![CI](https://github.com/Chris-Ndungu/African-Market-Intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/Chris-Ndungu/African-Market-Intelligence/actions/workflows/ci.yml)
+[![dbt docs](https://github.com/Chris-Ndungu/African-Market-Intelligence/actions/workflows/dbt-docs.yml/badge.svg)](https://chris-ndungu.github.io/African-Market-Intelligence/)
+
 > **Automated macroeconomic data pipeline covering 54 African countries** — from raw API ingestion to query-optimised BigQuery analytics models, refreshed daily.
+
+**[Explore the live dbt docs and lineage graph →](https://chris-ndungu.github.io/African-Market-Intelligence/#!/model/model.african_market_intelligence.mart_country_profile?g_v=1)**
 
 Built to demonstrate production-style data engineering: batch ingestion, dbt modelling, orchestration, and data quality — on a real-world African macroeconomic dataset.
 
@@ -79,7 +84,7 @@ This pipeline closes that gap.
 |---|---|---|
 | Ingestion | **Python 3.10+** | HTTP clients, schema validation, GCP auth |
 | Data Warehouse | **Google BigQuery** | Scalable, serverless, native GCP — free tier sufficient |
-| Transformation | **dbt Core 1.11+** | Version-controlled SQL, built-in testing, lineage docs |
+| Transformation | **dbt Core 1.8+** (Docker image pins 1.11) | Version-controlled SQL, built-in testing, lineage docs |
 | BQ Adapter | **dbt-bigquery** | Official BigQuery adapter for dbt |
 | Orchestration | **Apache Airflow 3.x** | Industry-standard, retry logic, task dependencies |
 | Containerisation | **Docker / Compose** | Local Airflow, reproducible environment |
@@ -194,7 +199,7 @@ The Airflow DAG runs the seed before the models on every scheduled execution.
 | Source | Data Provided | Access | Cadence |
 |---|---|---|---|
 | [World Bank API](https://data.worldbank.org/) | GDP, population, trade, private credit/GDP, mobile subscriptions | REST — free, no key | Daily |
-| [IMF Data API](https://data.imf.org/) | Inflation, GDP, current account, government debt and balance, unemployment, population | REST — free, no key | Daily |
+| [IMF DataMapper API](https://www.imf.org/external/datamapper/api/help) | Inflation, GDP, current account, government debt and balance, unemployment, population | REST — free, no key | Daily |
 | [ExchangeRate-API](https://www.exchangerate-api.com/) | FX rates vs USD for all 54 countries | REST — free tier | Daily |
 
 ---
@@ -206,7 +211,7 @@ The Airflow DAG runs the seed before the models on every scheduled execution.
 | Indicator key is unique and non-null | `fact_macroeconomic_indicators` | Built-in | DAG fails |
 | Country codes map to the seed using ISO2 or ISO3 | Staging and facts | Custom generic test | DAG fails |
 | Indicator categories use the configured set | `dim_indicator` | Accepted values | DAG fails |
-| FX record key is unique; rate timestamp is present | `fact_fx_rates` | Built-in | DAG fails |
+| One FX rate per country per ingestion date; repeated provider timestamps warn | `fact_fx_rates` | dbt_utils | DAG fails (stale rates warn only) |
 | Risk score stays between 0 and 100 | `mart_country_profile` | Accepted range | DAG fails |
 | Country dimension has exactly 54 countries | `dim_country` | Singular SQL test | DAG fails |
 | Raw source freshness is within thresholds | World Bank, IMF, FX sources | `dbt source freshness` | Airflow task fails on error threshold |
@@ -228,8 +233,10 @@ ingest_fx_rates   ──┘     (runs dbt deps first)              │
                                               run_dbt_tests ──► notify_on_success
 ```
 
-All tasks retry **3 times with exponential backoff (5 → 10 → 20 minutes)**.
-Any failed API fetch fails its ingestion task, so a partly fetched source
+Ingestion and model tasks retry **3 times with exponential backoff
+(5 → 10 → 20 minutes)**. `run_dbt_tests` does not retry, because a failing data
+test is deterministic, and `check_dbt_source_freshness` retries once after
+2 minutes to cover a transient `dbt deps` failure. Any failed API fetch fails its ingestion task, so a partly fetched source
 never overwrites the day's good data. The country
 seed is loaded before model runs so `dim_country` is available to downstream
 models. Source freshness is checked after ingestion and fails when a raw table
@@ -257,6 +264,7 @@ african-market-intelligence/
 │   │   └── dim_country_seed.csv  # Country attributes for all 54 African countries
 │   ├── macros/                # Custom generic test: country_code_relationship
 │   ├── models/
+│   │   ├── overview.md        # Landing page of the published dbt docs
 │   │   ├── staging/           # stg_world_bank, stg_imf, stg_fx_rates
 │   │   └── marts/
 │   │       ├── dimensions/    # dim_country, dim_indicator
@@ -274,7 +282,10 @@ african-market-intelligence/
 │   └── config/airflow.cfg
 │
 ├── tests/                     # pytest unit tests for ingestion
-├── .github/workflows/ci.yml   # Ruff, pytest, dbt parse (+ BigQuery run when secrets exist)
+├── .github/workflows/
+│   ├── ci.yml                 # Ruff, pytest, dbt parse (+ BigQuery run when secrets exist)
+│   └── dbt-docs.yml           # Builds dbt docs and publishes them to GitHub Pages
+├── pytest.ini · ruff.toml     # Test path and lint target settings
 ├── .env.example
 ├── requirements.txt
 ├── Makefile
@@ -343,14 +354,6 @@ make airflow-up      # Start Airflow via Docker Compose
 make airflow-down    # Stop Airflow
 ```
 
-### Published dbt documentation
-
-The [dbt documentation site](https://chris-ndungu.github.io/African-Market-Intelligence/)
-is generated and published to GitHub Pages on pushes to `main`. It includes
-model documentation and lineage without querying BigQuery. To enable publishing,
-set the repository's Pages build and deployment source to **GitHub Actions**.
-The workflow can also be started manually from the Actions tab.
-
 `dbt-run` seeds `dim_country_seed.csv` before building models so the
 `dim_country` dimension always contains all 54 countries, including countries
 without current observations. Country names and current income groups follow
@@ -359,6 +362,15 @@ reflect current administrative capitals (including Gitega in Burundi).
 Region and sub-region follow the
 [UN M49 geographic groupings](https://unstats.un.org/unsd/methodology/m49/),
 and currency codes are ISO 4217.
+
+### Published dbt documentation
+
+The [dbt documentation site](https://chris-ndungu.github.io/African-Market-Intelligence/)
+is generated and published to GitHub Pages on pushes to `main`. It includes
+model documentation and lineage without querying BigQuery, so column data types
+are not shown. In a fork, set the repository's Pages build and deployment
+source to **GitHub Actions** to enable publishing. The workflow can also be
+started manually from the Actions tab.
 
 ### Running a single source
 
@@ -413,10 +425,10 @@ ISO3 identifiers, and a dbt singular test enforces exactly 54 seeded countries.
 ## 📦 Output Use Cases
 
 **1. Exchange Rate Trend Analysis**
-Query `mart_fx_trends` to track African currency movements vs USD. Segment by region or income group. Use the `volatility_score` column to identify high-risk currency periods. Relevant for investment analysts monitoring FX risk.
+Query `mart_fx_trends` to track African currency movements vs USD. Join `dim_country` to segment by region or income group. Use the `volatility_score` column to identify high-risk currency periods. Relevant for investment analysts monitoring FX risk.
 
 **2. Inflation vs GDP Comparison**
-Query `mart_inflation_gdp` for cross-country macro comparisons by quarter. Plot real GDP growth against inflation rate to identify countries in stagflation, high-growth, or stable trajectories.
+Query `mart_inflation_gdp` for annual cross-country comparisons. Pivot GDP per capita against CPI inflation to spot high-inflation, low-income economies and track how each country moves over time.
 
 **3. Country-Level Economic Monitoring**
 Query `mart_country_profile` by country and indicator to explore annual macroeconomic observations enriched with the latest FX rate and the documented `risk_score`. Use `dim_country` for the stable 54-row country reference dimension.

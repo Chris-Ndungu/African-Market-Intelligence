@@ -3,7 +3,7 @@ version: 2
 sources:
   - name: world_bank_raw
     database: "{{ env_var('GCP_PROJECT') }}"
-    schema: raw_african_macro
+    schema: "{{ env_var('BQ_RAW_DATASET', 'raw_african_macro') }}"
     tables: 
       - name: raw_world_bank
         description: "Raw macroeconomic indicators loaded from ingestion scripts."

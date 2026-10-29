@@ -4,7 +4,7 @@ sources:
   - name: fx_rates_raw
     description: "Raw exchange rates records ingested via Python."
     database: "{{ env_var('GCP_PROJECT') }}"
-    schema: raw_african_macro
+    schema: "{{ env_var('BQ_RAW_DATASET', 'raw_african_macro') }}"
 
     tables: 
       - name: raw_fx_rates

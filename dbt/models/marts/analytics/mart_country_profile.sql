@@ -49,7 +49,8 @@ fx_daily_changes as (
 fx_volatility as (
     select
         latest.country_code,
-        stddev_pop(changes.daily_change) * sqrt(252) * 100
+        -- Rates are captured every calendar day, so annualise with 365, not 252.
+        stddev_pop(changes.daily_change) * sqrt(365) * 100
             as annualized_volatility_pct
     from latest_fx as latest
     join fx_daily_changes as changes

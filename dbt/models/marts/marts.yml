@@ -20,11 +20,22 @@ models:
   - name: fact_fx_rates
     description: "Daily exchange rates rebuilt from staging on each run and partitioned by ingestion date."
     data_tests:
+      # One rate per country per ingestion day: the grain staging deduplicates to.
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
               - country_code
+              - ingestion_date
+      # A repeated provider timestamp means the API served a stale rate.
+      # Worth knowing about, but not a reason to fail the pipeline.
+      - dbt_utils.unique_combination_of_columns:
+          name: fact_fx_rates_stale_provider_rate
+          arguments:
+            combination_of_columns:
+              - country_code
               - rate_timestamp
+          config:
+            severity: warn
     columns:
       - name: record_id
         tests:
